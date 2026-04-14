@@ -1,5 +1,8 @@
 const REQUIRED = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'GOOGLE_CLOUD_PROJECT'];
 
+export const CLAUDE_MODEL = 'claude-haiku-4-5';
+export const MAX_OUTPUT_TOKENS = 400;
+
 export function loadConfig() {
   const missing = REQUIRED.filter(k => !process.env[k]);
   if (missing.length) {
