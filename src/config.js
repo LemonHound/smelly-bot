@@ -10,6 +10,7 @@ export function loadConfig() {
     SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN,
     SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN,
     GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
+    FIRESTORE_DATABASE_ID: process.env.FIRESTORE_DATABASE_ID,
     FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || null,
     PORT: Number(process.env.PORT) || 3000,
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
