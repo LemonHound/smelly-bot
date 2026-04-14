@@ -1,8 +1,5 @@
 const REQUIRED = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'GOOGLE_CLOUD_PROJECT'];
 
-export const CLAUDE_MODEL = 'claude-haiku-4-5';
-export const MAX_OUTPUT_TOKENS = 400;
-
 export function loadConfig() {
   const missing = REQUIRED.filter(k => !process.env[k]);
   if (missing.length) {
@@ -22,6 +19,8 @@ export function loadConfig() {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || null,
     LOG_LLM_PAYLOADS: process.env.LOG_LLM_PAYLOADS === 'true',
     THREAD_CONTEXT_MAX_CHARS: Number(process.env.THREAD_CONTEXT_MAX_CHARS) || 6000,
+    CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
+    MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 400,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN || null,
     GITHUB_REPO: process.env.GITHUB_REPO || null,
   });

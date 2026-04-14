@@ -48,8 +48,14 @@ function buildUserMessage({ channelName, mentionUser, mentionText, threadMessage
 
 export function makeLlmReply({ config, prompts, rateLimit, anthropicClient }) {
   return async (ctx) => {
-    const { ok } = await rateLimit.tryConsume();
-    if (!ok) {
+    let rateLimitOk = true;
+    try {
+      const { ok } = await rateLimit.tryConsume();
+      rateLimitOk = ok;
+    } catch (err) {
+      console.error('Rate limiter unavailable, failing open:', err.message);
+    }
+    if (!rateLimitOk) {
       return composeFallback();
     }
 
