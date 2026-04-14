@@ -32,13 +32,13 @@ See [specs/milestone-1-claude-integration.md](specs/milestone-1-claude-integrati
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| Anthropic SDK wired up | Spec | `@anthropic-ai/sdk`, Haiku |
-| System/persona instruction files in `prompts/` | Spec | LLM-driven on/off-topic routing via prompt |
-| Mention -> Claude -> threaded reply | Spec | |
-| Thread context for in-thread mentions | Spec | Root + newest replies, char-budgeted |
-| Debug payload logging (`LOG_LLM_PAYLOADS`) | Spec | Env-toggled, for GCP + local use |
-| Rate limit enforcement | Spec | Global, per-hour + per-day |
-| Composed fallback (emoji + snark + excuse) on hard failures | Spec | `src/fallbacks.js`, random pick per slot |
+| Anthropic SDK wired up | Implemented | `@anthropic-ai/sdk`, Haiku |
+| System/persona instruction files in `prompts/` | Implemented | LLM-driven on/off-topic routing via prompt |
+| Mention -> Claude -> threaded reply | Implemented | |
+| Thread context for in-thread mentions | Implemented | Root + newest replies, char-budgeted |
+| Debug payload logging (`LOG_LLM_PAYLOADS`) | Implemented | Env-toggled, for GCP + local use |
+| Rate limit enforcement | Implemented | Global, per-hour + per-day |
+| Composed fallback (emoji + snark + excuse) on hard failures | Implemented | `src/fallbacks.js`, random pick per slot |
 
 ---
 > Milestones 2–5 below are **Idea** status. No spec files exist yet. Each needs a spec written and reviewed before implementation begins.
