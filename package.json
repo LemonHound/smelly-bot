@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test test/llm.test.js"
+    "test": "node --test test/llm.test.js test/slack.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",

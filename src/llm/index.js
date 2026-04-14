@@ -1,6 +1,7 @@
 import { composeFallback } from '../fallbacks.js';
 
 const TIMEOUT_MS = 15_000;
+const RATE_LIMIT_TIMEOUT_MS = 3_000;
 
 export function buildThreadContext(messages, maxChars) {
   if (messages.length === 0) return [];
@@ -50,7 +51,10 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient }) {
   return async (ctx) => {
     let rateLimitOk = true;
     try {
-      const { ok } = await rateLimit.tryConsume();
+      const deadline = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), RATE_LIMIT_TIMEOUT_MS)
+      );
+      const { ok } = await Promise.race([rateLimit.tryConsume(), deadline]);
       rateLimitOk = ok;
     } catch (err) {
       console.error('Rate limiter unavailable, failing open:', err.message);
