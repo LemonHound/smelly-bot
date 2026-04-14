@@ -1,26 +1,19 @@
 import 'dotenv/config';
-import bolt from '@slack/bolt';
-
-const { App, LogLevel } = bolt;
+import { loadConfig } from './config.js';
+import { getFirestore } from './firestore.js';
+import { makeRateLimit } from './rateLimit.js';
+import { loadPrompts } from './llm/prompts.js';
+import { buildSlackApp } from './slack.js';
 
 const RESPONSES = ['fart', ':dash:', ':cloud:', 'pfffbbbt'];
 
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  appToken: process.env.SLACK_APP_TOKEN,
-  socketMode: true,
-  logLevel: process.env.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO,
-});
+const config = loadConfig();
+const firestore = getFirestore(config);
+const rateLimit = makeRateLimit({ firestore, config });
+const prompts = loadPrompts();
 
-app.event('app_mention', async ({ event, say }) => {
-  const reply = RESPONSES[Math.floor(Math.random() * RESPONSES.length)];
-  await say({ text: reply, thread_ts: event.thread_ts ?? event.ts });
-});
+const reply = () => RESPONSES[Math.floor(Math.random() * RESPONSES.length)];
 
-app.error(async (error) => {
-  console.error('Unhandled error:', error);
-});
-
-const port = Number(process.env.PORT) || 3000;
-await app.start(port);
-console.log(`smelly-bot running (socket mode, port ${port} reserved for future HTTP use)`);
+const app = buildSlackApp({ config, reply });
+await app.start(config.PORT);
+console.log('smelly-bot running (socket mode)');

@@ -18,13 +18,13 @@ Prepares the codebase for M1 and beyond. See [specs/scaffolding.md](specs/scaffo
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| Split `src/index.js` into modules | Spec | |
-| `config.js` with env validation | Spec | |
-| `prompts/` directory + loader | Spec | Markdown instruction files |
-| `firestore.js` client factory | Spec | Emulator in dev, ADC in prod |
-| `rateLimit.js` (Firestore-backed per-hour + per-day) | Spec | Transactional, survives restarts |
-| `fallbacks.js` composer + dictionaries | Spec | Hard-failure reply |
-| `llm/` module placeholder (wired in M1) | Spec | |
+| Split `src/index.js` into modules | Implemented | |
+| `config.js` with env validation | Implemented | |
+| `prompts/` directory + loader | Implemented | Markdown instruction files |
+| `firestore.js` client factory | Implemented | Emulator in dev, ADC in prod |
+| `rateLimit.js` (Firestore-backed per-hour + per-day) | Implemented | Transactional, survives restarts |
+| `fallbacks.js` composer + dictionaries | Implemented | Hard-failure reply |
+| `llm/` module placeholder (wired in M1) | Implemented | |
 
 ## Milestone 1 — Claude integration (respond via LLM)
 
