@@ -39,6 +39,8 @@ See [specs/milestone-1-claude-integration.md](specs/milestone-1-claude-integrati
 | Debug payload logging (`LOG_LLM_PAYLOADS`) | Implemented | Env-toggled, for GCP + local use |
 | Rate limit enforcement | Implemented | Global, per-hour + per-day |
 | Composed fallback (emoji + snark + excuse) on hard failures | Implemented | `src/fallbacks.js`, random pick per slot |
+| Progress indicator (reactions + status message) | Implemented | Pulled forward from M5; emoji phases + edited status message |
+| Rate limiter fail-open with 3s timeout | Implemented | `Promise.race` guard; no hang on Firestore unavailability |
 
 ---
 > Milestones 2–5 below are **Idea** status. No spec files exist yet. Each needs a spec written and reviewed before implementation begins.
@@ -82,7 +84,7 @@ Swap direct Octokit calls for an MCP server for GitHub actions, and add progress
 |---|---|---|
 | GitHub MCP server wired up | Idea | Replaces or fronts M2/M3/M4 Octokit usage |
 | Migrate M2-M4 GitHub actions to MCP tools | Idea | |
-| Streaming progress UX (ephemeral or edited message) | Idea | Show "working on it..." with in-place updates |
+| Streaming progress UX (ephemeral or edited message) | Implemented | Pulled into M1; see progress indicator row above |
 | No mid-flight user input re-ingestion | Non-goal | Snapshot at invocation; re-prompt requires new `@-mention` |
 | Retry policy for non-LLM-costing failures | Idea | e.g. transient Slack/GitHub 5xx; never re-call Claude on retry |
 
