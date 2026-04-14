@@ -26,13 +26,16 @@ Long-lived process is required for Socket Mode. Cloud Run with a warm instance i
 ### 5. LLM: Anthropic Claude API (planned, not yet wired)
 Rate-limited per-hour and per-day. Budget enforcement will live in a small in-memory/Redis counter (TBD when added).
 
-### 6. GitHub integration: TBD between MCP server and direct REST (Octokit)
-Either works. MCP is preferred for the "fun" factor; if an MCP server proves awkward for the bot runtime, fall back to Octokit. Scope will be limited to: comments on issues/PRs, updating descriptions/titles, creating/closing issues, linking issues to PRs/issues.
+### 6. GitHub integration: Octokit first (M2-M4), MCP later (M5)
+Direct REST via Octokit for the initial GitHub features. MCP migration is its own milestone (M5) once the shape of the actions is settled. Scope stays limited to: comments on issues/PRs, updating descriptions/titles, creating/closing issues, linking issues to PRs/issues.
 
 ### 7. Repo relationship to Game AI Website
 GitHub has no formal parent/child repos. We link the two repos via README + a shared topic tag. The bot references the target repo at runtime via `GITHUB_REPO` env var.
 
-### 8. MVP scope (this commit)
+### 8. Persistence: Firestore (native mode)
+Adopted during scaffolding. Used for rate-limit counters now; will hold per-user auth/consent records in later milestones. Free tier covers expected traffic. Chosen over: in-memory (doesn't survive restarts and blocks future user-state features), JSON files (broken on Cloud Run), Memorystore/Redis (~$40/mo floor), Cloud SQL (~$10+/mo floor). Local dev uses the Firestore emulator; prod uses ADC from the runtime service account.
+
+### 9. MVP scope (this commit)
 Respond to `app_mention` with a random silly reply (`fart`, a cloud emoji, etc.), threaded to the mention. No LLM, no GitHub, no history scanning. All future features layer in behind this same event handler.
 
 ## Non-goals
