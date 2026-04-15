@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeProgressIndicator } from '../src/slack.js';
 
@@ -122,6 +122,28 @@ describe('makeProgressIndicator', () => {
     await flush();
 
     assert.equal(client.calls.length, callCountAtStop, 'no new calls after stop');
+    t.mock.timers.reset();
+  });
+
+  it('self-terminates after max lifetime even if stop() is never called', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    await flush();
+
+    t.mock.timers.tick(60_000);
+    await flush();
+
+    const removals = client.calls.filter(c => c.fn === 'reactions.remove');
+    assert.ok(removals.length > 0, 'reactions should be cleaned up by max lifetime');
+
+    t.mock.timers.tick(5_000);
+    await flush();
+    const callsAfterMax = client.calls.length;
+
+    t.mock.timers.tick(5_000);
+    await flush();
+    assert.equal(client.calls.length, callsAfterMax, 'no further calls after self-termination');
     t.mock.timers.reset();
   });
 });

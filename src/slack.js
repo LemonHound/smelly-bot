@@ -3,6 +3,8 @@ import { buildThreadContext } from './llm/index.js';
 
 const { App, LogLevel } = bolt;
 
+const MAX_INDICATOR_MS = 60_000;
+
 const STILL_WORKING_MESSAGES = [
   "still thinking... :brain:",
   "still here, don't flush yet... :toilet:",
@@ -47,13 +49,17 @@ export function makeProgressIndicator({ client, channel, ts, threadTs }) {
   const timer = setInterval(tick, 5_000);
 
   const stop = async () => {
+    if (done) return;
     done = true;
     clearInterval(timer);
+    clearTimeout(maxTimer);
     await Promise.all([
       client.reactions.remove({ channel, timestamp: ts, name: 'eyes' }).catch(() => {}),
       client.reactions.remove({ channel, timestamp: ts, name: 'hourglass' }).catch(() => {}),
     ]);
   };
+
+  const maxTimer = setTimeout(stop, MAX_INDICATOR_MS);
 
   return { stop };
 }
