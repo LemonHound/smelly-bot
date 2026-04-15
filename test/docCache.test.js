@@ -62,6 +62,21 @@ describe('makeDocCache — getOrFetch', () => {
     assert.equal(callTool.calls, 0);
   });
 
+  it('normalizes resource blocks from cache hit (stale stored format)', async () => {
+    const resourceBlocks = [
+      { type: 'resource', resource: { uri: 'file:///README.md', mimeType: 'text/markdown', text: '# Hello' } },
+    ];
+    const callTool = makeCallTool();
+    const cache = makeDocCache({
+      firestore: makeFirestore({ snap: makeSnap(resourceBlocks, 1000) }),
+      callTool: callTool.fn,
+      config: makeConfig(),
+    });
+    const result = await cache.getOrFetch('README.md');
+    assert.deepEqual(result, [{ type: 'text', text: '# Hello' }]);
+    assert.equal(callTool.calls, 0, 'should not re-fetch from MCP');
+  });
+
   it('calls MCP and upserts on cache miss', async () => {
     let upserted = null;
     const firestore = {

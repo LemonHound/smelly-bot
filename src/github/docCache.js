@@ -61,7 +61,7 @@ export function makeDocCache({ firestore, callTool, config }) {
 
   async function getOrFetch(path) {
     const cached = await get(path);
-    if (cached !== null) return cached;
+    if (cached !== null) return normalizeForClaude(cached);
 
     const raw = await callTool('get_file_contents', { owner, repo, path });
     const normalized = normalizeForClaude(raw);
