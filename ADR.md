@@ -30,9 +30,9 @@ Rate-limited per-hour and per-day via Firestore-backed counters. Model: `claude-
 The bot is an MCP client. GitHub access uses the official GitHub MCP server rather than direct Octokit calls. Scope for M4: add comment on issue/PR, update issue/PR description. No issue creation in initial milestones.
 
 ### 7. MCP client architecture
-`src/mcp/client.js` launches configured MCP servers as stdio subprocesses at startup, merges their tool lists, and exposes a single `callTool(serverName, toolName, args)` executor. The LLM module receives tools and callTool as injected dependencies — it does not import from `src/mcp/` directly. If a server fails to start, the bot logs a warning and degrades gracefully to plain Claude.
+`src/mcp/client.js` launches configured MCP servers as stdio subprocesses at startup, merges their tool lists, and exposes a single `callTool(toolName, args)` executor. The LLM module receives tools and callTool as injected dependencies — it does not import from `src/mcp/` directly. If a server fails to start, the bot logs a warning and degrades gracefully to plain Claude.
 
-MCP servers configured in `config.js` (hardcoded array, not env-driven). Adding a server requires a code change and redeploy.
+MCP servers configured in `mcp-servers.json` in the project root (not `config.js`). The file is a JSON array of server entries, each with `name`, `command`, and `args`. Adding or removing a server requires editing this file and redeploying — no code change needed.
 
 ### 8. Structured logging: pino
 All log output uses pino with GCP-compatible field names: `severity` (not `level`), `message` (not `msg`). JSON written to stdout; Cloud Run ingests it automatically into Cloud Logging. Local dev pipes through `pino-pretty`. No module calls `console` directly — all import `logger` from `src/logger.js`. LLM payloads logged always at `debug` severity (no toggle flag).
