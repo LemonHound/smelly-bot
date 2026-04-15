@@ -41,11 +41,20 @@ export async function createMcpClient(servers) {
     const entry = toolIndex.get(toolName);
     if (!entry) throw new Error(`No MCP server provides tool: ${toolName}`);
 
+    logger.info({ server: entry.serverName, tool: toolName }, 'Tool call started');
+
     const timeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`Tool call timed out: ${toolName}`)), TOOL_TIMEOUT_MS)
     );
     const call = entry.client.callTool({ name: toolName, arguments: args });
     const result = await Promise.race([call, timeout]);
+
+    const isError = result.isError === true;
+    logger.info({ server: entry.serverName, tool: toolName, isError }, 'Tool call completed');
+    if (isError) {
+      logger.warn({ server: entry.serverName, tool: toolName, content: result.content }, 'Tool returned error content');
+    }
+
     return result.content;
   }
 
