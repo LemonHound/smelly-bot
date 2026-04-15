@@ -10,7 +10,6 @@ import { createMcpClient } from './mcp/client.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
 
-const require = createRequire(import.meta.url);
 const mcpServers = JSON.parse(readFileSync(new URL('../mcp-servers.json', import.meta.url)));
 
 const config = loadConfig();
