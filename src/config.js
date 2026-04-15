@@ -1,4 +1,4 @@
-const ALWAYS_REQUIRED = ['SLACK_BOT_TOKEN', 'GOOGLE_CLOUD_PROJECT'];
+const ALWAYS_REQUIRED = ['SLACK_BOT_TOKEN', 'GOOGLE_CLOUD_PROJECT', 'GITHUB_TOKEN', 'GITHUB_REPO'];
 
 export function loadConfig() {
   const missing = ALWAYS_REQUIRED.filter(k => !process.env[k]);
@@ -28,7 +28,7 @@ export function loadConfig() {
     CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
     MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 400,
     LLM_MAX_TOOL_ITERATIONS: Number(process.env.LLM_MAX_TOOL_ITERATIONS) || 5,
-    GITHUB_TOKEN: process.env.GITHUB_TOKEN || null,
-    GITHUB_REPO: process.env.GITHUB_REPO || null,
+    GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+    GITHUB_REPO: process.env.GITHUB_REPO,
   });
 }

@@ -421,4 +421,66 @@ describe('buildThreadContext', () => {
     assert.equal(result[1].user, 'B');
     assert.equal(result[2].user, 'C');
   });
+
+  it('uses displayName and userId when present in message objects', () => {
+    const messages = [
+      { userId: 'U111', displayName: 'Alice', text: 'hello from alice' },
+      { userId: 'U222', displayName: 'Bob', text: 'hello from bob' },
+    ];
+    const result = buildThreadContext(messages, 1000);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].userId, 'U111');
+    assert.equal(result[0].displayName, 'Alice');
+    assert.equal(result[1].userId, 'U222');
+    assert.equal(result[1].displayName, 'Bob');
+  });
+});
+
+describe('buildUserMessage with displayName', () => {
+  it('includes both display name and userId in header when mentionDisplayName provided', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({ ...baseCtx, mentionUserId: 'U123', mentionDisplayName: 'Charlie' });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('Charlie'), 'should include display name');
+    assert.ok(userContent.includes('<@U123>'), 'should include user ID in Slack format');
+  });
+
+  it('thread messages with {userId, displayName, text} format include both in output', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({
+      ...baseCtx,
+      threadMessages: [
+        { userId: 'U444', displayName: 'Dana', text: 'first message' },
+      ],
+    });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('Dana'), 'should include display name in thread context');
+    assert.ok(userContent.includes('<@U444>'), 'should include user ID in thread context');
+  });
 });

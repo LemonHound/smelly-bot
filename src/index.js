@@ -7,6 +7,8 @@ import { makeRateLimit } from './rateLimit.js';
 import { loadPrompts } from './llm/prompts.js';
 import { makeLlmReply } from './llm/index.js';
 import { createMcpClient } from './mcp/client.js';
+import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
+import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
 
@@ -18,10 +20,27 @@ const rateLimit = makeRateLimit({ firestore, config });
 const prompts = loadPrompts();
 const anthropicClient = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 
-const { tools, callTool } = await createMcpClient(mcpServers);
+let docCache = null;
+
+const localTools = [
+  {
+    ...REFRESH_REPO_DOC_SCHEMA,
+    handler: async (args) => makeRefreshRepoDocHandler({ docCache })(args),
+  },
+];
+
+const { tools, callTool: rawCallTool, toolsByServer } = await createMcpClient(
+  mcpServers,
+  localTools,
+  config.GITHUB_REPO,
+);
+
+docCache = makeDocCache({ firestore, callTool: rawCallTool, config });
+
+const callTool = wrapCallToolWithCache(rawCallTool, docCache, config);
 
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
-const app = await buildSlackApp({ config, reply });
+const app = await buildSlackApp({ config, reply, toolsByServer });
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');

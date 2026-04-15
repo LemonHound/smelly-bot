@@ -65,6 +65,15 @@ export function makeProgressIndicator({ client, channel, ts, threadTs }) {
   return { stop };
 }
 
+function resolveDisplayName(client, userId, cache) {
+  if (cache.has(userId)) return cache.get(userId);
+  const promise = client.users.info({ user: userId })
+    .then(result => result.user?.profile?.display_name || result.user?.real_name || userId)
+    .catch(() => userId);
+  cache.set(userId, promise);
+  return promise;
+}
+
 async function fetchThreadContext(client, event, maxChars) {
   const { thread_ts, ts, channel } = event;
   const isReplyInThread = thread_ts && thread_ts !== ts;
@@ -78,31 +87,61 @@ async function fetchThreadContext(client, event, maxChars) {
     return null;
   }
 
-  const messages = replies.map(m => ({ user: m.user ?? 'unknown', text: m.text ?? '' }));
+  const nameCache = new Map();
+  const messages = await Promise.all(
+    replies.map(async (m) => {
+      const userId = m.user ?? 'unknown';
+      const displayName = await resolveDisplayName(client, userId, nameCache);
+      return { userId, displayName, text: m.text ?? '' };
+    })
+  );
+
   return buildThreadContext(messages, maxChars);
 }
 
-export async function buildSlackApp({ config, reply }) {
+export function buildToolsMessage(toolsByServer) {
+  const lines = ['*Registered MCP tools*', ''];
+  for (const [serverName, toolNames] of toolsByServer) {
+    const toolList = toolNames.length > 0 ? toolNames.join(', ') : '(none — allowedTools is empty)';
+    lines.push(`*${serverName}:* ${toolList}`);
+  }
+  lines.push('', 'To add tools, update allowedTools in mcp-servers.json and redeploy.');
+  return lines.join('\n');
+}
+
+export async function buildSlackApp({ config, reply, toolsByServer, _createApp = null }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
-  const app = config.SLACK_APP_TOKEN
-    ? new App({
-        token: config.SLACK_BOT_TOKEN,
-        appToken: config.SLACK_APP_TOKEN,
-        socketMode: true,
-        logLevel,
-      })
-    : new App({
-        token: config.SLACK_BOT_TOKEN,
-        signingSecret: config.SLACK_SIGNING_SECRET,
-        logLevel,
-      });
+  const app = _createApp
+    ? _createApp()
+    : config.SLACK_APP_TOKEN
+      ? new App({
+          token: config.SLACK_BOT_TOKEN,
+          appToken: config.SLACK_APP_TOKEN,
+          socketMode: true,
+          logLevel,
+        })
+      : new App({
+          token: config.SLACK_BOT_TOKEN,
+          signingSecret: config.SLACK_SIGNING_SECRET,
+          logLevel,
+        });
 
   const { user_id: botUserId } = await app.client.auth.test();
   logger.info({ botUserId }, 'Bot identity confirmed');
 
   app.event('app_mention', async ({ event, client }) => {
     const threadTs = event.thread_ts ?? event.ts;
+    const mentionText = event.text.replace(`<@${botUserId}>`, '').trim();
+
+    if (mentionText.toLowerCase() === 'tools') {
+      await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: threadTs,
+        text: buildToolsMessage(toolsByServer),
+      });
+      return;
+    }
 
     const indicator = makeProgressIndicator({
       client,
@@ -111,17 +150,19 @@ export async function buildSlackApp({ config, reply }) {
       threadTs,
     });
 
-    const [threadMessages, channelInfo] = await Promise.all([
+    const nameCache = new Map();
+    const [threadMessages, channelInfo, mentionDisplayName] = await Promise.all([
       fetchThreadContext(client, event, config.THREAD_CONTEXT_MAX_CHARS),
       client.conversations.info({ channel: event.channel }).catch(() => null),
+      resolveDisplayName(client, event.user, nameCache),
     ]);
 
     const channelName = channelInfo?.channel?.name ?? event.channel;
-    const mentionText = event.text.replace(`<@${botUserId}>`, '').trim();
 
     const text = await reply({
       channelName,
       mentionUserId: event.user,
+      mentionDisplayName,
       botUserId,
       mentionText,
       threadMessages,

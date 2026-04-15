@@ -7,18 +7,19 @@ const RATE_LIMIT_TIMEOUT_MS = 3_000;
 export function buildThreadContext(messages, maxChars) {
   if (messages.length === 0) return [];
 
-  const charCount = (m) => `${m.user}: ${m.text}`.length;
+  const label = (m) => m.displayName ? `${m.displayName} (<@${m.userId}>)` : (m.user ?? m.userId ?? 'unknown');
+  const charCount = (m) => `${label(m)}: ${m.text}`.length;
 
   const root = messages[0];
   const rootChars = charCount(root);
 
   if (rootChars > maxChars) {
     const suffix = '... [truncated]';
-    const prefixLen = maxChars - suffix.length - `${root.user}: `.length;
+    const prefixLen = maxChars - suffix.length - `${label(root)}: `.length;
     const truncatedText = prefixLen > 0
       ? root.text.slice(0, prefixLen) + suffix
       : suffix;
-    return [{ user: root.user, text: truncatedText }];
+    return [{ ...root, text: truncatedText }];
   }
 
   const included = [];
@@ -39,14 +40,18 @@ function todayString() {
   return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-function buildUserMessage({ channelName, mentionUserId, botUserId, mentionText, threadMessages }) {
+function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages }) {
+  const mentionLabel = mentionDisplayName
+    ? `${mentionDisplayName} (<@${mentionUserId}>)`
+    : `<@${mentionUserId}>`;
   const parts = [
-    `Date: ${todayString()} | Channel: #${channelName} | Mentioned by: <@${mentionUserId}> | You are: <@${botUserId}>`,
+    `Date: ${todayString()} | Channel: #${channelName} | Mentioned by: ${mentionLabel} | You are: <@${botUserId}>`,
   ];
   if (threadMessages && threadMessages.length > 0) {
     parts.push('Thread context:');
     for (const m of threadMessages) {
-      parts.push(`<@${m.user}>: ${m.text}`);
+      const label = m.displayName ? `${m.displayName} (<@${m.userId}>)` : (m.user ? `<@${m.user}>` : `<@${m.userId}>`);
+      parts.push(`${label}: ${m.text}`);
     }
     parts.push('---');
   }
