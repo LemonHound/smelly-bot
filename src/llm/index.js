@@ -76,13 +76,15 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient }) {
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-      const response = await anthropicClient.messages.create({
-        model: config.CLAUDE_MODEL,
-        max_tokens: config.MAX_OUTPUT_TOKENS,
-        system: prompts,
-        messages: [{ role: 'user', content: userMessage }],
-        signal: controller.signal,
-      });
+      const response = await anthropicClient.messages.create(
+        {
+          model: config.CLAUDE_MODEL,
+          max_tokens: config.MAX_OUTPUT_TOKENS,
+          system: prompts,
+          messages: [{ role: 'user', content: userMessage }],
+        },
+        { signal: controller.signal }
+      );
 
       if (config.LOG_LLM_PAYLOADS) {
         console.log('[LLM response]', JSON.stringify(response, null, 2));
