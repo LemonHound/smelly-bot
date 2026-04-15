@@ -73,24 +73,45 @@ See [specs/milestone-2-mcp-wikipedia.md](specs/milestone-2-mcp-wikipedia.md).
 
 ## Milestone 3 — GitHub read via MCP
 
-Connect to the official GitHub MCP server. Bot can answer questions about the target repo by reading its markdown documentation.
+Connect to the official GitHub MCP server. Bot can answer questions about the target repo by reading its markdown documentation and live issue/PR data.
+
+See [specs/milestone-3-github-mcp.md](specs/milestone-3-github-mcp.md).
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| GitHub MCP server connection | Idea | Official `@modelcontextprotocol/server-github` |
-| Read tools: get file contents from target repo | Idea | README.md, CONTRIBUTING.md, ADR.md |
-| Firestore cache for fetched docs (TTL-based staleness) | Idea | Auto-refresh when stale |
-| LLM-triggered doc refresh tool | Idea | LLM calls refresh when context warrants it |
-| Q&A routing for repo questions | Idea | No code routing — LLM decides based on context |
+| GitHub MCP server connection | Spec | Official `@modelcontextprotocol/server-github`; stdio; `GITHUB_TOKEN` from env |
+| `mcp-servers.json` extensions + `allowedTools` filter | Spec | M3 adds `env` + `allowedTools` fields to the M2-introduced file; filtering added to `client.js`; exact GitHub tool names confirmed at implementation |
+| Read tools: get file contents from target repo | Spec | README.md, CONTRIBUTING.md, ADR.md; lazy fetch |
+| Read tools: list/get issues and PRs | Spec | Always live — no cache |
+| Firestore doc cache (24h TTL) | Spec | Intercepts `get_file_contents` for known doc paths; `src/github/docCache.js` |
+| `refresh_repo_doc` local tool | Spec | LLM calls when context warrants; bypasses TTL; updates Firestore |
+| system.md updates | Spec | Topics to cover listed in spec; exact text written at implementation time |
 
-## Milestone 4 — GitHub write via MCP + emoji confirmation UX
+## Milestone 4 — GitHub write via MCP + authorization lifecycle
 
-Add write tools scoped to comments and descriptions only. Introduce emoji reaction as confirmation UX — a pattern needed for all write operations going forward.
+Add write tools scoped to comments and descriptions only. Introduce a two-phase
+confirmation UX: bot proposes action and stores full context in Firestore, then
+goes to sleep; a `reaction_added` event triggers a new bot invocation that
+executes with the stored context. Per-user authorization storage (coarse by
+action type) lets users pre-approve and skip future confirmations.
+Authorization and revocation ship together — approve-forever without a
+revocation path is a one-way door.
+
+MVP phase: approve-once only (no stored auth). Augment in a second phase with
+30-day approve-forever + the authorization listing and revocation UX.
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| Write tools: add comment to issue/PR | Idea | Via GitHub MCP server |
-| Write tools: update issue/PR description | Idea | Via GitHub MCP server |
-| Emoji confirmation UX | Idea | Bot previews action + reacts with options; user reacts to confirm/cancel |
-| `reaction_added` event handler | Idea | New Slack event scope required |
-| Timeout/cancel on no reaction | Idea | Configurable window, default ~5 min |
+| Write tools: add comment to issue/PR | Idea | Via GitHub MCP; added to `allowedTools` in `mcp.config.json` |
+| Write tools: update issue/PR description | Idea | Via GitHub MCP; added to `allowedTools` in `mcp.config.json` |
+| Phase-based tool array injection | Idea | Phase 1 (proposal): read tools only — LLM structurally cannot call write tools. Phase 2 (post-confirmation): read + write tools injected into new invocation |
+| Firestore `botMessages/{ts}` collection | Idea | Stores bot message metadata (type, context) keyed by Slack message ts; drives `reaction_added` type dispatch |
+| Firestore pending action state | Idea | Stores proposed action + full conversation context; one entry per pending confirmation |
+| Reusable confirmation message component | Idea | Structured template; bot posts and sleeps — no LLM involvement at post time |
+| `reaction_added` handler (type dispatch) | Idea | Looks up message ts in `botMessages`; dispatches to pending-action or auth-revocation handler |
+| Per-user authorization storage | Idea | Coarse by action type; Firestore-backed; 30-day sliding TTL refreshed on each invocation of that tool |
+| Approve-once vs. approve-forever UX | Idea | Two emoji options on confirmation message; "forever" stores to Firestore; "once" executes without storing |
+| Authorization listing capability | Idea | LLM-generated message listing all active user auths, each with a distinct emoji; bot reacts with all emojis; triggered by NL intent or slash command |
+| Slash command for authorization listing | Idea | Registered in Slack app config; surfaces in Slack's command list as explicit fallback alongside NL intent |
+| Authorization revocation via emoji | Idea | User reacts to auth listing message with a tool's emoji → silently removes that auth from Firestore; no message changes; fails silently if auth doesn't exist |
+| Pending action cleanup | Idea | Strategy TBD for orphaned pending actions where no reaction ever arrives |
