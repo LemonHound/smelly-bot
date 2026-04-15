@@ -20,7 +20,9 @@ Statuses:
 
 ## Spec location
 
-Specs live in `specs/<short-name>.md`. One spec per milestone or discrete scaffolding change. Specs include: Goal, Scope, Non-goals, Acceptance criteria, Open questions.
+Specs live in `specs/<short-name>.md`. One spec per milestone or discrete scaffolding change. Specs include: Goal, Scope, Non-goals, Acceptance criteria, Test cases, Open questions.
+
+A spec is not complete without a **Test cases** section. It must enumerate concrete test cases for every new module introduced by the spec — organized by file, covering happy paths, error paths, and security-relevant branches. A spec missing this section must not be approved or implemented.
 
 ## Logging convention
 
