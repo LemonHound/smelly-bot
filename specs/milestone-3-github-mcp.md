@@ -61,12 +61,10 @@ Exact GitHub tool names confirmed at implementation time by inspecting the live
 reach Claude before M4's confirmation UX is in place. To update the list:
 edit `mcp-servers.json`, redeploy — no code change required.
 
-**New env vars** added to `config.js` validation and `.env.example`:
-
-```
-GITHUB_TOKEN=          # PAT already configured in GCP Secret Manager
-GITHUB_REPO=           # owner/repo format, e.g. user/game-ai-hub
-```
+`GITHUB_TOKEN` and `GITHUB_REPO` already exist in `config.js` and `.env.example`
+as of M2 (added as optional, `|| null`). M3 must make both required: add them
+to the required validation in `config.js` and remove the `|| null` fallbacks so
+startup fails fast if either is missing.
 
 `GITHUB_REPO` is read from config and used as the default repository context
 in tool calls where a repo argument is required.
@@ -250,8 +248,8 @@ unified `callTool` function — its signature does not change from M2.
    pino entry and continues functioning as a plain Claude + Wikipedia bot.
    No crash, no unhandled rejection.
 
-8. `GITHUB_TOKEN` and `GITHUB_REPO` are present in `.env.example` with
-   descriptions. Both are validated at startup by `config.js`.
+8. `GITHUB_TOKEN` and `GITHUB_REPO` are required by `config.js` — startup
+   throws if either is missing. (Both already exist in `.env.example` from M2.)
 
 9. PROJECT_PLAN.md rows for M3 flip to Implemented in the same PR.
 
