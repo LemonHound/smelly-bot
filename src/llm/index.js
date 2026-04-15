@@ -96,9 +96,6 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
 
     logger.debug({ payload }, 'LLM request');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
     try {
       let iterations = 0;
       const maxIterations = config.LLM_MAX_TOOL_ITERATIONS ?? 5;
@@ -106,10 +103,17 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
       while (iterations < maxIterations) {
         iterations++;
 
-        const response = await anthropicClient.messages.create(
-          { ...payload, messages: [...payload.messages] },
-          { signal: controller.signal }
-        );
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        let response;
+        try {
+          response = await anthropicClient.messages.create(
+            { ...payload, messages: [...payload.messages] },
+            { signal: controller.signal }
+          );
+        } finally {
+          clearTimeout(timer);
+        }
 
         logger.debug({ response }, 'LLM response');
 
@@ -153,8 +157,6 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
     } catch (err) {
       logger.error({ err: err.message }, 'LLM call failed');
       return composeFallback();
-    } finally {
-      clearTimeout(timer);
     }
   };
 }
