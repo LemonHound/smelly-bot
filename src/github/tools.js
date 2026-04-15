@@ -1,5 +1,3 @@
-export const KNOWN_DOC_PATHS = Object.freeze(['README.md', 'CONTRIBUTING.md', 'ADR.md']);
-
 export const REFRESH_REPO_DOC_SCHEMA = {
   name: 'refresh_repo_doc',
   description: 'Force a fresh fetch of a repo documentation file, bypassing the local cache. Use when the user asks about recent changes or when the cached content may be stale.',

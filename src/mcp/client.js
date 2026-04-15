@@ -2,7 +2,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { logger } from '../logger.js';
-import { KNOWN_DOC_PATHS } from '../github/tools.js';
 
 const TOOL_TIMEOUT_MS = 15_000;
 
@@ -27,26 +26,10 @@ export function resolveVars(headers) {
   );
 }
 
-function validateToolCall(toolName, args, toolIndex, githubRepo) {
+function validateToolCall(toolName, toolIndex) {
   if (!toolIndex.has(toolName)) {
     return { ok: false, reason: `Unknown tool: ${toolName}` };
   }
-
-  if (toolName === 'get_file_contents' && githubRepo) {
-    const [owner, repo] = githubRepo.split('/');
-    if (args.owner === owner && args.repo === repo) {
-      if (!KNOWN_DOC_PATHS.includes(args.path)) {
-        return { ok: false, reason: `Path not in allowlist: ${args.path}` };
-      }
-    }
-  }
-
-  if (toolName === 'refresh_repo_doc') {
-    if (!KNOWN_DOC_PATHS.includes(args.path)) {
-      return { ok: false, reason: `Path not in allowlist: ${args.path}` };
-    }
-  }
-
   return { ok: true };
 }
 
@@ -79,7 +62,7 @@ async function connectServer(server, _clientFactory) {
   return { client, serverTools };
 }
 
-export async function createMcpClient(servers, localTools = [], githubRepo = null, _clientFactory = null) {
+export async function createMcpClient(servers, localTools = [], _clientFactory = null) {
   const toolIndex = new Map();
   const tools = [];
   const toolsByServer = new Map();
@@ -125,7 +108,7 @@ export async function createMcpClient(servers, localTools = [], githubRepo = nul
   toolsByServer.set('local', localToolEntries);
 
   async function callTool(toolName, args) {
-    const validation = validateToolCall(toolName, args, toolIndex, githubRepo);
+    const validation = validateToolCall(toolName, toolIndex);
     if (!validation.ok) {
       logger.warn({ tool: toolName, args, reason: validation.reason }, 'Tool call rejected by security layer');
       return [{ type: 'text', text: 'Tool call failed.' }];

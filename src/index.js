@@ -29,11 +29,7 @@ const localTools = [
   },
 ];
 
-const { tools, callTool: rawCallTool, toolsByServer } = await createMcpClient(
-  mcpServers,
-  localTools,
-  config.GITHUB_REPO,
-);
+const { tools, callTool: rawCallTool, toolsByServer } = await createMcpClient(mcpServers, localTools);
 
 docCache = makeDocCache({ firestore, callTool: rawCallTool, config });
 

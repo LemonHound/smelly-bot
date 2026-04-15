@@ -135,7 +135,7 @@ describe('makeDocCache — fetchDirect', () => {
 });
 
 describe('wrapCallToolWithCache', () => {
-  it('intercepts get_file_contents for known doc path on GITHUB_REPO', async () => {
+  it('intercepts get_file_contents for any path on GITHUB_REPO and serves from cache', async () => {
     const { wrapCallToolWithCache } = await import('../src/github/docCache.js');
     let mcpCalled = false;
     const rawCallTool = async () => { mcpCalled = true; return [{ type: 'text', text: 'raw' }]; };
@@ -147,24 +147,24 @@ describe('wrapCallToolWithCache', () => {
     });
 
     const wrapped = wrapCallToolWithCache(rawCallTool, cache, makeConfig());
-    const result = await wrapped('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'README.md' });
+    const result = await wrapped('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'src/index.js' });
     assert.equal(result[0].text, 'cached doc');
     assert.equal(mcpCalled, false);
   });
 
-  it('passes through get_file_contents for unknown path', async () => {
+  it('intercepts get_file_contents for arbitrary paths on GITHUB_REPO', async () => {
     const { wrapCallToolWithCache } = await import('../src/github/docCache.js');
     let mcpCalled = false;
-    const rawCallTool = async () => { mcpCalled = true; return [{ type: 'text', text: 'raw result' }]; };
+    const rawCallTool = async () => { mcpCalled = true; return [{ type: 'text', text: 'fetched' }]; };
     const cache = makeDocCache({
       firestore: makeFirestore({ snap: missingSnap }),
       callTool: rawCallTool,
       config: makeConfig(),
     });
     const wrapped = wrapCallToolWithCache(rawCallTool, cache, makeConfig());
-    const result = await wrapped('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'unknown.txt' });
-    assert.equal(result[0].text, 'raw result');
-    assert.equal(mcpCalled, true);
+    const result = await wrapped('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'src/config.js' });
+    assert.equal(result[0].text, 'fetched');
+    assert.equal(mcpCalled, true, 'MCP called on cache miss');
   });
 
   it('passes through get_file_contents for different repo', async () => {

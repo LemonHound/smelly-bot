@@ -1,5 +1,4 @@
 import { FieldValue } from '@google-cloud/firestore';
-import { KNOWN_DOC_PATHS } from './tools.js';
 import { logger } from '../logger.js';
 
 const TTL_MS = 24 * 60 * 60 * 1000;
@@ -73,12 +72,7 @@ export function makeDocCache({ firestore, callTool, config }) {
 export function wrapCallToolWithCache(callTool, docCache, config) {
   const [owner, repo] = config.GITHUB_REPO.split('/');
   return async (toolName, args) => {
-    if (
-      toolName === 'get_file_contents' &&
-      args.owner === owner &&
-      args.repo === repo &&
-      KNOWN_DOC_PATHS.includes(args.path)
-    ) {
+    if (toolName === 'get_file_contents' && args.owner === owner && args.repo === repo) {
       const text = await docCache.getOrFetch(args.path);
       return [{ type: 'text', text }];
     }
