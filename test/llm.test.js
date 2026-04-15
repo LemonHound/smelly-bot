@@ -6,7 +6,13 @@ const makeConfig = (overrides = {}) => ({
   CLAUDE_MODEL: 'claude-haiku-4-5',
   MAX_OUTPUT_TOKENS: 400,
   THREAD_CONTEXT_MAX_CHARS: 6000,
-  LOG_LLM_PAYLOADS: false,
+  LLM_MAX_TOOL_ITERATIONS: 5,
+  ...overrides,
+});
+
+const makePrompts = (overrides = {}) => ({
+  systemMd: 'You are a test bot.',
+  topicsMd: '## Factoid topics\n- Test topic',
   ...overrides,
 });
 
@@ -15,7 +21,7 @@ const exceededRateLimit = { tryConsume: async () => ({ ok: false, retryAfterMs: 
 
 const makeClient = (text = 'hello from claude') => ({
   messages: {
-    create: async () => ({ content: [{ type: 'text', text }] }),
+    create: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text }] }),
   },
 });
 
@@ -36,7 +42,7 @@ describe('makeLlmReply', () => {
   it('returns Claude response text on success', async () => {
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'Be helpful.',
+      prompts: makePrompts(),
       rateLimit: okRateLimit,
       anthropicClient: makeClient('howdy partner'),
     });
@@ -47,7 +53,7 @@ describe('makeLlmReply', () => {
   it('returns fallback when rate limit exceeded', async () => {
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'Be helpful.',
+      prompts: makePrompts(),
       rateLimit: exceededRateLimit,
       anthropicClient: makeClient(),
     });
@@ -58,7 +64,7 @@ describe('makeLlmReply', () => {
   it('returns fallback when Anthropic SDK throws', async () => {
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'Be helpful.',
+      prompts: makePrompts(),
       rateLimit: okRateLimit,
       anthropicClient: errorClient,
     });
@@ -70,11 +76,11 @@ describe('makeLlmReply', () => {
     let called = false;
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'Be helpful.',
+      prompts: makePrompts(),
       rateLimit: exceededRateLimit,
       anthropicClient: {
         messages: {
-          create: async () => { called = true; return { content: [{ type: 'text', text: 'x' }] }; },
+          create: async () => { called = true; return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'x' }] }; },
         },
       },
     });
@@ -82,36 +88,41 @@ describe('makeLlmReply', () => {
     assert.equal(called, false);
   });
 
-  it('sends system prompt in the system field', async () => {
+  it('sends system prompt as array with cache_control on topics block', async () => {
     let capturedPayload;
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'MY_SYSTEM_PROMPT',
+      prompts: makePrompts({ systemMd: 'SYSTEM', topicsMd: 'TOPICS' }),
       rateLimit: okRateLimit,
       anthropicClient: {
         messages: {
           create: async (payload) => {
             capturedPayload = payload;
-            return { content: [{ type: 'text', text: 'ok' }] };
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
           },
         },
       },
     });
     await reply(baseCtx);
-    assert.equal(capturedPayload.system, 'MY_SYSTEM_PROMPT');
+    assert.ok(Array.isArray(capturedPayload.system), 'system should be an array');
+    assert.equal(capturedPayload.system.length, 2);
+    assert.equal(capturedPayload.system[0].text, 'SYSTEM');
+    assert.equal(capturedPayload.system[0].cache_control, undefined);
+    assert.equal(capturedPayload.system[1].text, 'TOPICS');
+    assert.deepEqual(capturedPayload.system[1].cache_control, { type: 'ephemeral' });
   });
 
   it('includes thread messages in user content when provided', async () => {
     let capturedPayload;
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'system',
+      prompts: makePrompts(),
       rateLimit: okRateLimit,
       anthropicClient: {
         messages: {
           create: async (payload) => {
             capturedPayload = payload;
-            return { content: [{ type: 'text', text: 'ok' }] };
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
           },
         },
       },
@@ -132,13 +143,13 @@ describe('makeLlmReply', () => {
     let capturedPayload;
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'system',
+      prompts: makePrompts(),
       rateLimit: okRateLimit,
       anthropicClient: {
         messages: {
           create: async (payload) => {
             capturedPayload = payload;
-            return { content: [{ type: 'text', text: 'ok' }] };
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
           },
         },
       },
@@ -152,13 +163,13 @@ describe('makeLlmReply', () => {
     let capturedPayload;
     const reply = makeLlmReply({
       config: makeConfig(),
-      prompts: 'system',
+      prompts: makePrompts(),
       rateLimit: okRateLimit,
       anthropicClient: {
         messages: {
           create: async (payload) => {
             capturedPayload = payload;
-            return { content: [{ type: 'text', text: 'ok' }] };
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
           },
         },
       },
@@ -167,6 +178,181 @@ describe('makeLlmReply', () => {
     const userContent = capturedPayload.messages[0].content;
     assert.ok(userContent.includes('random'), 'should include channel name');
     assert.ok(userContent.includes('Dave'), 'should include mention user');
+  });
+
+  it('passes tool definitions to Claude when provided', async () => {
+    let capturedPayload;
+    const tools = [{ name: 'findPage', description: 'find a page', input_schema: { type: 'object', properties: {} } }];
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      tools,
+      callTool: async () => [{ type: 'text', text: 'result' }],
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply(baseCtx);
+    assert.deepEqual(capturedPayload.tools, tools);
+  });
+
+  it('executes tool-use loop: calls callTool and feeds tool_result back to Claude', async () => {
+    const toolCalls = [];
+    let callCount = 0;
+
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      tools: [{ name: 'findPage', description: 'find', input_schema: { type: 'object', properties: {} } }],
+      callTool: async (toolName, args) => {
+        toolCalls.push({ toolName, args });
+        return [{ type: 'text', text: 'Wikipedia result' }];
+      },
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            callCount++;
+            if (callCount === 1) {
+              return {
+                stop_reason: 'tool_use',
+                content: [
+                  { type: 'tool_use', id: 'tu_1', name: 'findPage', input: { query: 'cephalopods' } },
+                ],
+              };
+            }
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Cephalopods are fascinating.' }] };
+          },
+        },
+      },
+    });
+
+    const result = await reply(baseCtx);
+    assert.equal(result, 'Cephalopods are fascinating.');
+    assert.equal(callCount, 2, 'Claude should be called twice');
+    assert.equal(toolCalls.length, 1);
+    assert.equal(toolCalls[0].toolName, 'findPage');
+    assert.deepEqual(toolCalls[0].args, { query: 'cephalopods' });
+  });
+
+  it('appends assistant + tool_result turns before second Claude call', async () => {
+    const capturedPayloads = [];
+    let callCount = 0;
+
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      tools: [{ name: 'getPage', description: 'get', input_schema: { type: 'object', properties: {} } }],
+      callTool: async (_toolName, _args) => [{ type: 'text', text: 'page content' }],
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayloads.push(JSON.parse(JSON.stringify(payload)));
+            callCount++;
+            if (callCount === 1) {
+              return {
+                stop_reason: 'tool_use',
+                content: [{ type: 'tool_use', id: 'tu_abc', name: 'getPage', input: { title: 'Octopus' } }],
+              };
+            }
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+          },
+        },
+      },
+    });
+
+    await reply(baseCtx);
+
+    const secondCall = capturedPayloads[1];
+    const roles = secondCall.messages.map(m => m.role);
+    assert.ok(roles.includes('assistant'), 'messages should include assistant turn');
+    assert.ok(roles.includes('user'), 'messages should include tool_result user turn');
+
+    const userTurn = secondCall.messages.find(m => m.role === 'user' && Array.isArray(m.content));
+    assert.ok(userTurn, 'tool_result user turn should exist');
+    const toolResult = userTurn.content.find(b => b.type === 'tool_result');
+    assert.ok(toolResult, 'tool_result block should exist');
+    assert.equal(toolResult.tool_use_id, 'tu_abc');
+  });
+
+  it('feeds is_error tool_result when callTool throws', async () => {
+    const capturedPayloads = [];
+    let callCount = 0;
+
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      tools: [{ name: 'findPage', description: 'find', input_schema: { type: 'object', properties: {} } }],
+      callTool: async (_toolName, _args) => { throw new Error('tool timeout'); },
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayloads.push(JSON.parse(JSON.stringify(payload)));
+            callCount++;
+            if (callCount === 1) {
+              return {
+                stop_reason: 'tool_use',
+                content: [{ type: 'tool_use', id: 'tu_err', name: 'findPage', input: { query: 'x' } }],
+              };
+            }
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'sorry' }] };
+          },
+        },
+      },
+    });
+
+    const result = await reply(baseCtx);
+    assert.equal(result, 'sorry');
+
+    const secondCall = capturedPayloads[1];
+    const userTurn = secondCall.messages.find(m => m.role === 'user' && Array.isArray(m.content));
+    const toolResult = userTurn.content.find(b => b.type === 'tool_result');
+    assert.equal(toolResult.is_error, true);
+  });
+
+  it('returns static fallback when max tool iterations exceeded', async () => {
+    let callCount = 0;
+    const reply = makeLlmReply({
+      config: makeConfig({ LLM_MAX_TOOL_ITERATIONS: 2 }),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      tools: [{ name: 'findPage', description: 'find', input_schema: { type: 'object', properties: {} } }],
+      callTool: async () => [{ type: 'text', text: 'result' }],
+      anthropicClient: {
+        messages: {
+          create: async () => {
+            callCount++;
+            return {
+              stop_reason: 'tool_use',
+              content: [{ type: 'tool_use', id: `tu_${callCount}`, name: 'findPage', input: { query: 'x' } }],
+            };
+          },
+        },
+      },
+    });
+
+    const result = await reply(baseCtx);
+    assert.match(result, /^:/, 'should return fallback when iterations exceeded');
+    assert.equal(callCount, 2, 'should stop at max iterations');
+  });
+
+  it('works without tools or callTool (plain Claude mode)', async () => {
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: makeClient('plain response'),
+    });
+    const result = await reply(baseCtx);
+    assert.equal(result, 'plain response');
   });
 });
 

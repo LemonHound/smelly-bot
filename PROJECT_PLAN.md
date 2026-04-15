@@ -62,13 +62,14 @@ See [specs/milestone-2-mcp-wikipedia.md](specs/milestone-2-mcp-wikipedia.md).
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| `@modelcontextprotocol/sdk` wired as MCP client | Spec | |
-| Wikipedia MCP server connection (stdio) | Spec | |
-| MCP server config layer | Spec | Which servers to start + connect to |
-| Tool-use loop in `makeLlmReply` | Spec | Multi-turn: tool_use → execute → tool_result → continue |
-| Prompt caching on system block | Spec | First milestone where block is large enough to benefit |
-| Pre-configured topic list in `prompts/topics.md` | Spec | Bot's default "interests" for casual mentions |
-| `@smelly-bot` surfaces factoids using Wikipedia tool | Spec | LLM decides when to call it |
+| `@modelcontextprotocol/sdk` wired as MCP client | Implemented | `src/mcp/client.js` |
+| Wikipedia MCP server connection (stdio) | Implemented | `@shelm/wikipedia-mcp-server` pinned dep, launched via npx |
+| MCP server config layer | Implemented | `mcp-servers.json` in project root, loaded by `src/index.js` |
+| Tool-use loop in `makeLlmReply` | Implemented | Multi-turn: tool_use → execute → tool_result → continue |
+| Prompt caching on system block | Implemented | `topics.md` block carries `cache_control: ephemeral` |
+| Pre-configured topic list in `prompts/topics.md` | Implemented | Bot's default "interests" for casual mentions |
+| `@smelly-bot` surfaces factoids using Wikipedia tool | Implemented | LLM decides when to call it |
+| Structured logging via pino | Implemented | `src/logger.js`; GCP severity mapping; replaces all console.* |
 
 ## Milestone 3 — GitHub read via MCP
 

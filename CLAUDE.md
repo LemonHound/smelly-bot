@@ -29,6 +29,10 @@ All log output uses pino via the shared `src/logger.js` instance. Never use
 severity: `debug` → DEBUG, `info` → INFO, `warn` → WARNING, `error` → ERROR.
 LLM payloads are always logged at `debug` — no feature flag needed.
 
+## Tests
+
+Tests live in `test/`. Any change that alters the behavior or signature of a tested module must update the affected tests in the same change. Never leave tests asserting against a stale API. Adding new behavior without a test requires explicit justification.
+
 ## Docs that must stay aligned
 
 - `PROJECT_PLAN.md` — deliverable status

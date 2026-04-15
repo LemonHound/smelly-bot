@@ -1,5 +1,6 @@
 import bolt from '@slack/bolt';
 import { buildThreadContext } from './llm/index.js';
+import { logger } from './logger.js';
 
 const { App, LogLevel } = bolt;
 
@@ -141,7 +142,7 @@ export function buildSlackApp({ config, reply }) {
   });
 
   app.error(async (error) => {
-    console.error('Slack app error:', error);
+    logger.error({ err: error.message }, 'Slack app error');
   });
 
   return app;
