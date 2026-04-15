@@ -86,7 +86,7 @@ export function makeDocCache({ firestore, callTool, config }) {
 export function wrapCallToolWithCache(callTool, docCache, config) {
   const [owner, repo] = config.GITHUB_REPO.split('/');
   return async (toolName, args) => {
-    if (toolName === 'get_file_contents' && args.owner === owner && args.repo === repo) {
+    if (toolName === 'get_file_contents' && args.owner === owner && args.repo === repo && args.path) {
       return await docCache.getOrFetch(args.path);
     }
     const result = await callTool(toolName, args);

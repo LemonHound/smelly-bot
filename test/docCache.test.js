@@ -266,6 +266,21 @@ describe('wrapCallToolWithCache', () => {
     assert.deepEqual(result, [{ type: 'text', text: 'issue body here' }]);
   });
 
+  it('falls through to raw callTool when get_file_contents is called without a path', async () => {
+    const { wrapCallToolWithCache } = await import('../src/github/docCache.js');
+    let mcpCalled = false;
+    const rawCallTool = async () => { mcpCalled = true; return [{ type: 'text', text: 'raw result' }]; };
+    const cache = makeDocCache({
+      firestore: makeFirestore({ snap: missingSnap }),
+      callTool: rawCallTool,
+      config: makeConfig(),
+    });
+    const wrapped = wrapCallToolWithCache(rawCallTool, cache, makeConfig());
+    const result = await wrapped('get_file_contents', { owner: 'owner', repo: 'myrepo' });
+    assert.equal(mcpCalled, true, 'should fall through to raw MCP when path is missing');
+    assert.deepEqual(result, [{ type: 'text', text: 'raw result' }]);
+  });
+
   it('passes through text blocks on passthrough calls unchanged', async () => {
     const { wrapCallToolWithCache } = await import('../src/github/docCache.js');
     const rawCallTool = async (name) => [{ type: 'text', text: `result:${name}` }];
