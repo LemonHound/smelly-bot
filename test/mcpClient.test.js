@@ -63,13 +63,17 @@ describe('createMcpClient — allowlist', () => {
       clientFactory(['toolA', 'toolB', 'toolC'])
     );
     const names = result.tools.map(t => t.name);
-    assert.ok(names.includes('toolA'), 'toolA should be present');
-    assert.ok(!names.includes('toolB'), 'toolB should be absent');
-    assert.ok(!names.includes('toolC'), 'toolC should be absent');
-    assert.deepEqual(result.toolsByServer.get('myserver'), ['toolA']);
+    assert.ok(names.includes('toolA'), 'toolA should be in LLM tools');
+    assert.ok(!names.includes('toolB'), 'toolB should not be in LLM tools');
+    assert.ok(!names.includes('toolC'), 'toolC should not be in LLM tools');
+    const serverTools = result.toolsByServer.get('myserver');
+    assert.equal(serverTools.length, 3, 'toolsByServer shows all server tools regardless of allowlist');
+    assert.ok(serverTools.some(t => t.name === 'toolA'));
+    assert.ok(serverTools.some(t => t.name === 'toolB'));
+    assert.ok(serverTools.some(t => t.name === 'toolC'));
   });
 
-  it('default deny: no allowedTools field → zero tools, toolsByServer entry is empty', async () => {
+  it('default deny: no allowedTools field → zero LLM tools, toolsByServer shows all server tools', async () => {
     const result = await createMcpClient(
       [{ name: 'myserver', type: 'stdio', command: 'noop', args: [] }],
       [],
@@ -77,10 +81,11 @@ describe('createMcpClient — allowlist', () => {
       clientFactory(['toolA', 'toolB'])
     );
     assert.equal(result.tools.filter(t => t.name === 'toolA' || t.name === 'toolB').length, 0);
-    assert.deepEqual(result.toolsByServer.get('myserver'), []);
+    const serverTools = result.toolsByServer.get('myserver');
+    assert.equal(serverTools.length, 2, 'toolsByServer shows all server tools');
   });
 
-  it('zero match: allowedTools has names not in server list → zero tools', async () => {
+  it('zero match: allowedTools has names not in server list → zero LLM tools, toolsByServer still shows all server tools', async () => {
     const result = await createMcpClient(
       [{ name: 'myserver', type: 'stdio', command: 'noop', args: [], allowedTools: ['nonexistent'] }],
       [],
@@ -88,7 +93,8 @@ describe('createMcpClient — allowlist', () => {
       clientFactory(['toolA', 'toolB'])
     );
     assert.equal(result.tools.length, 0);
-    assert.deepEqual(result.toolsByServer.get('myserver'), []);
+    const serverTools = result.toolsByServer.get('myserver');
+    assert.equal(serverTools.length, 2, 'toolsByServer shows all server tools');
   });
 });
 
@@ -105,7 +111,7 @@ describe('createMcpClient — local tools', () => {
     const result = await createMcpClient([], localTools, null);
     assert.ok(result.tools.some(t => t.name === 'my_local_tool'), 'local tool in tools array');
     assert.ok(result.toolsByServer.has('local'), 'toolsByServer has local key');
-    assert.ok(result.toolsByServer.get('local').includes('my_local_tool'));
+    assert.ok(result.toolsByServer.get('local').some(t => t.name === 'my_local_tool'));
   });
 
   it('local key present even with no local tools', async () => {
@@ -146,7 +152,9 @@ describe('createMcpClient — server connect failure', () => {
     );
     assert.ok(result.tools.some(t => t.name === 'goodTool'), 'good server tools should be present');
     assert.deepEqual(result.toolsByServer.get('bad'), []);
-    assert.deepEqual(result.toolsByServer.get('good'), ['goodTool']);
+    const goodTools = result.toolsByServer.get('good');
+    assert.equal(goodTools.length, 1);
+    assert.equal(goodTools[0].name, 'goodTool');
   });
 });
 

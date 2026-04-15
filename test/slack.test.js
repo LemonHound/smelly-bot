@@ -201,16 +201,17 @@ const baseConfig = {
 };
 
 describe('buildToolsMessage', () => {
-  it('formats tools grouped by server', () => {
+  it('formats tools grouped by server with descriptions', () => {
     const toolsByServer = new Map([
-      ['wikipedia', ['search', 'readArticle']],
+      ['wikipedia', [{ name: 'search', description: 'Search articles' }, { name: 'readArticle', description: 'Read article' }]],
       ['github', []],
-      ['local', ['refresh_repo_doc']],
+      ['local', [{ name: 'refresh_repo_doc', description: 'Refresh a doc' }]],
     ]);
     const msg = buildToolsMessage(toolsByServer);
     assert.ok(msg.includes('wikipedia'), 'should include server name');
-    assert.ok(msg.includes('search, readArticle'), 'should include tool names');
-    assert.ok(msg.includes('(none — allowedTools is empty)'), 'should indicate empty server');
+    assert.ok(msg.includes('search'), 'should include tool name');
+    assert.ok(msg.includes('Search articles'), 'should include tool description');
+    assert.ok(msg.includes('(none)'), 'should indicate empty server');
     assert.ok(msg.includes('refresh_repo_doc'), 'should include local tool');
   });
 });
@@ -221,9 +222,9 @@ describe('@smelly-bot tools intercept', () => {
     const slackClient = makeSlackClient();
     const mockApp = makeMockBoltApp(slackClient);
     const toolsByServer = new Map([
-      ['wikipedia', ['search', 'readArticle']],
+      ['wikipedia', [{ name: 'search', description: 'Search' }, { name: 'readArticle', description: 'Read' }]],
       ['github', []],
-      ['local', ['refresh_repo_doc']],
+      ['local', [{ name: 'refresh_repo_doc', description: 'Refresh' }]],
     ]);
     await buildSlackApp({
       config: baseConfig,
