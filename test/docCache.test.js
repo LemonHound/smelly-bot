@@ -140,6 +140,34 @@ describe('makeDocCache — getOrFetch', () => {
   });
 });
 
+describe('makeDocCache — normalizeForClaude (via getOrFetch)', () => {
+  it('converts resource blocks to text blocks', async () => {
+    const resourceBlocks = [
+      { type: 'resource', resource: { uri: 'file:///README.md', mimeType: 'text/markdown', text: '# Hello' } },
+    ];
+    const callTool = makeCallTool(resourceBlocks);
+    const cache = makeDocCache({
+      firestore: makeFirestore({ snap: missingSnap }),
+      callTool: callTool.fn,
+      config: makeConfig(),
+    });
+    const result = await cache.getOrFetch('README.md');
+    assert.deepEqual(result, [{ type: 'text', text: '# Hello' }]);
+  });
+
+  it('passes text blocks through unchanged', async () => {
+    const textBlocks = [{ type: 'text', text: 'plain content' }];
+    const callTool = makeCallTool(textBlocks);
+    const cache = makeDocCache({
+      firestore: makeFirestore({ snap: missingSnap }),
+      callTool: callTool.fn,
+      config: makeConfig(),
+    });
+    const result = await cache.getOrFetch('README.md');
+    assert.deepEqual(result, textBlocks);
+  });
+});
+
 describe('makeDocCache — fetchDirect', () => {
   it('always calls MCP and upserts regardless of cache state', async () => {
     let upserted = null;
