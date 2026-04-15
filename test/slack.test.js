@@ -1,6 +1,6 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProgressIndicator } from '../src/slack.js';
+import { makeProgressIndicator, buildSlackApp, buildToolsMessage } from '../src/slack.js';
 
 function makeClient() {
   const calls = [];
@@ -145,5 +145,176 @@ describe('makeProgressIndicator', () => {
     await flush();
     assert.equal(client.calls.length, callsAfterMax, 'no further calls after self-termination');
     t.mock.timers.reset();
+  });
+});
+
+function makeSlackClient({ usersInfoName = 'Alice', usersInfoThrows = false } = {}) {
+  const posted = [];
+  const usersInfoCalls = [];
+  return {
+    posted,
+    usersInfoCalls,
+    auth: { test: async () => ({ user_id: 'UBOT' }) },
+    reactions: {
+      add: async () => {},
+      remove: async () => {},
+    },
+    chat: {
+      postMessage: async (args) => {
+        posted.push(args);
+        return { ts: 'msg-ts' };
+      },
+      update: async () => {},
+    },
+    conversations: {
+      info: async () => ({ channel: { name: 'general' } }),
+      replies: async () => ({ messages: [] }),
+    },
+    users: {
+      info: async ({ user }) => {
+        usersInfoCalls.push(user);
+        if (usersInfoThrows) throw new Error('users.info failed');
+        return { user: { profile: { display_name: usersInfoName }, real_name: usersInfoName } };
+      },
+    },
+  };
+}
+
+function makeMockBoltApp(slackClient) {
+  const events = {};
+  const errHandlers = [];
+  return {
+    _events: events,
+    event: (name, handler) => { events[name] = handler; },
+    error: (handler) => errHandlers.push(handler),
+    start: async () => {},
+    client: slackClient,
+  };
+}
+
+const baseConfig = {
+  SLACK_BOT_TOKEN: 'xoxb-test',
+  SLACK_APP_TOKEN: null,
+  SLACK_SIGNING_SECRET: 'secret',
+  LOG_LEVEL: 'info',
+  THREAD_CONTEXT_MAX_CHARS: 6000,
+};
+
+describe('buildToolsMessage', () => {
+  it('formats tools grouped by server', () => {
+    const toolsByServer = new Map([
+      ['wikipedia', ['search', 'readArticle']],
+      ['github', []],
+      ['local', ['refresh_repo_doc']],
+    ]);
+    const msg = buildToolsMessage(toolsByServer);
+    assert.ok(msg.includes('wikipedia'), 'should include server name');
+    assert.ok(msg.includes('search, readArticle'), 'should include tool names');
+    assert.ok(msg.includes('(none — allowedTools is empty)'), 'should indicate empty server');
+    assert.ok(msg.includes('refresh_repo_doc'), 'should include local tool');
+  });
+});
+
+describe('@smelly-bot tools intercept', () => {
+  it('posts tool list without calling reply for "tools"', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const toolsByServer = new Map([
+      ['wikipedia', ['search', 'readArticle']],
+      ['github', []],
+      ['local', ['refresh_repo_doc']],
+    ]);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'reply text'; },
+      toolsByServer,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> tools', ts: 'ts1', channel: 'C1', user: 'U123' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'reply should not be called for tools command');
+    assert.ok(slackClient.posted.length > 0, 'should post a message');
+    assert.ok(slackClient.posted[0].text.includes('wikipedia'), 'tool list should include wikipedia server');
+    assert.ok(slackClient.posted[0].text.includes('refresh_repo_doc'), 'tool list should include local tool');
+  });
+
+  it('treats "TOOLS" case-insensitively', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> TOOLS', ts: 'ts1', channel: 'C1', user: 'U123' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'reply should not be called for TOOLS');
+  });
+
+  it('does not intercept "tools please"', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'LLM response'; },
+      toolsByServer: new Map([['local', []]]),
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> tools please', ts: 'ts1', channel: 'C1', user: 'U123' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, true, 'reply should be called for "tools please"');
+  });
+});
+
+describe('display name resolution', () => {
+  it('deduplicates users.info calls for same user across thread messages', async () => {
+    const slackClient = makeSlackClient({ usersInfoName: 'Bob' });
+    slackClient.conversations.replies = async () => ({
+      messages: [
+        { user: 'U123', text: 'first' },
+        { user: 'U123', text: 'second' },
+      ],
+    });
+    const mockApp = makeMockBoltApp(slackClient);
+    let capturedCtx = null;
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async (ctx) => { capturedCtx = ctx; return 'ok'; },
+      toolsByServer: new Map([['local', []]]),
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> hi', ts: 'ts1', thread_ts: 'thread1', channel: 'C1', user: 'U123' },
+      client: slackClient,
+    });
+    const u123Calls = slackClient.usersInfoCalls.filter(id => id === 'U123');
+    assert.ok(u123Calls.length <= 2, `U123 should be looked up at most twice (thread + mention), got ${u123Calls.length}`);
+  });
+
+  it('falls back to raw user ID when users.info throws', async () => {
+    const slackClient = makeSlackClient({ usersInfoThrows: true });
+    const mockApp = makeMockBoltApp(slackClient);
+    let capturedCtx = null;
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async (ctx) => { capturedCtx = ctx; return 'ok'; },
+      toolsByServer: new Map([['local', []]]),
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> hi', ts: 'ts1', channel: 'C1', user: 'U999' },
+      client: slackClient,
+    });
+    assert.equal(capturedCtx.mentionDisplayName, 'U999', 'should fall back to raw user ID');
   });
 });

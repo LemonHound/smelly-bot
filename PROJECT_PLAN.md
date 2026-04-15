@@ -79,17 +79,17 @@ See [specs/milestone-3-github-mcp.md](specs/milestone-3-github-mcp.md).
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| GitHub MCP server connection | Spec | Official GitHub hosted MCP server via HTTP transport (`StreamableHttpClientTransport`); `GITHUB_TOKEN` via `$VAR` substitution in headers |
-| `mcp-servers.json` extensions | Spec | M3 adds `type` (stdio/http), `url`, `headers`, `allowedTools`; dual transport in `client.js`; default-deny allowlist; `disabledTools` removed |
-| Read tools: get file contents from target repo | Spec | README.md, CONTRIBUTING.md, ADR.md; lazy fetch |
-| Read tools: list/get issues and PRs | Spec | Always live — no cache |
-| Firestore doc cache (24h TTL) | Spec | Intercepts `get_file_contents` for known doc paths; `src/github/docCache.js` |
-| `@smelly-bot tools` debug command | Spec | Static response listing all registered tools grouped by server; bypasses LLM, rate limiter, and progress indicator |
-| Tool invocation security layer | Spec | Pre-invocation validator in `callTool`; path allowlist for doc tools; generic error result to LLM on rejection |
-| User display name resolution | Spec | Bug fix: resolve Slack user IDs to display names via `users.info`; deduplicated per-invocation; LLM sees name + ID |
-| Local tool registration via `createMcpClient` | Spec | `refresh_repo_doc` and future local tools registered through same MCP layer; LLM sees them uniformly |
-| `refresh_repo_doc` local tool | Spec | LLM calls when context warrants; bypasses TTL; updates Firestore |
-| system.md updates | Spec | Topics to cover listed in spec; exact text written at implementation time |
+| GitHub MCP server connection | Implemented | Official GitHub hosted MCP server via HTTP transport (`StreamableHTTPClientTransport`); `GITHUB_TOKEN` via `$VAR` substitution in headers |
+| `mcp-servers.json` extensions | Implemented | M3 adds `type` (stdio/http), `url`, `headers`, `allowedTools`; dual transport in `client.js`; default-deny allowlist; `disabledTools` removed |
+| Read tools: get file contents from target repo | Implemented | README.md, CONTRIBUTING.md, ADR.md; lazy fetch via Firestore cache |
+| Read tools: list/get issues and PRs | Implemented | Always live — no cache; enabled via `allowedTools` in `mcp-servers.json` |
+| Firestore doc cache (24h TTL) | Implemented | `src/github/docCache.js`; fail-open on Firestore unavailability; `wrapCallToolWithCache` wrapper |
+| `@smelly-bot tools` debug command | Implemented | Static response listing all registered tools grouped by server; bypasses LLM, rate limiter, and progress indicator |
+| Tool invocation security layer | Implemented | Pre-invocation validator in `callTool`; path allowlist for doc tools; generic error result to LLM on rejection |
+| User display name resolution | Implemented | Resolve Slack user IDs to display names via `users.info`; deduplicated per-invocation via promise cache; LLM sees name + ID |
+| Local tool registration via `createMcpClient` | Implemented | `localTools` parameter; LLM sees local and MCP tools uniformly |
+| `refresh_repo_doc` local tool | Implemented | `src/github/tools.js`; bypasses TTL via `fetchDirect`; updates Firestore |
+| system.md updates | Implemented | GitHub tool routing guidance added to `prompts/system.md` |
 
 ## Milestone 4 — GitHub write via MCP + authorization lifecycle
 
