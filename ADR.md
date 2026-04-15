@@ -35,9 +35,13 @@ The bot is an MCP client. GitHub access uses the official GitHub MCP server rath
 MCP servers configured in `mcp-servers.json` in the project root (not `config.js`). The file is a JSON array of server entries. Each entry requires a `type` field: `"stdio"` or `"http"`.
 
 - **Stdio entries** (`type: "stdio"`): `command`, `args`, optional `env` overrides. Subprocess inherits the full parent `process.env`; `env` overrides are merged on top (`{ ...process.env, ...(server.env ?? {}) }`). No `$VAR` substitution needed — secrets are already present in `process.env`.
-- **HTTP entries** (`type: "http"`): `url`, optional `headers`. Header values containing `$VARNAME` are resolved from `process.env` at startup (once, baked into the transport); startup throws if a referenced var is missing. Uses `StreamableHttpClientTransport`; the client object is long-lived, reused for all tool calls.
+- **HTTP entries** (`type: "http"`): `url`, optional `headers`. Header values containing `$VARNAME` substrings are resolved from `process.env` at startup via `resolveVars` (regex-based inline substitution, e.g. `"Bearer $GITHUB_TOKEN"` → `"Bearer <token>"`); startup throws if a referenced var is missing. Uses `StreamableHTTPClientTransport` from `@modelcontextprotocol/sdk/client/streamableHttp.js`; the client object is long-lived, reused for all tool calls. The SDK's `authProvider` option (for OAuth flows) is not used — static Bearer token via Secret Manager is sufficient.
 
 **`allowedTools` — default deny (fail closed):** every entry must declare an explicit `allowedTools` string array. Absent or empty = zero tools from that server reach the LLM. There is no all-pass mode. Adding or removing allowed tools requires editing the JSON and redeploying — no code change needed. A startup WARNING is logged when a server connects but contributes zero tools (misconfiguration signal).
+
+**Local tools** registered via `createMcpClient(servers, localTools)` — an array of `{ name, description, input_schema, handler }`. These appear in the flat `tools` array and in `toolsByServer` under the key `"local"`. The LLM cannot distinguish local tools from MCP server tools.
+
+**Tool invocation security layer** runs in `callTool` before any MCP server or local handler is reached. Invalid invocations (unknown tool, path not in allowlist) return a generic error `tool_result` to the LLM with no detail about why. Blocked calls are logged at WARNING severity.
 
 Firestore `docCache` collection (M3+): caches file contents fetched from the target GitHub repo. Document ID is `{owner}__{repo}__{path}` (forward slashes in path replaced with `__`). Documents store `content` and `fetchedAt`. TTL is 24h, checked on read. Cache fails open on Firestore unavailability (logs WARNING, falls through to GitHub MCP). Making the cached doc path list or TTL configurable is explicitly deferred — revisit if the doc set grows significantly.
 

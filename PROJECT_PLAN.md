@@ -85,6 +85,9 @@ See [specs/milestone-3-github-mcp.md](specs/milestone-3-github-mcp.md).
 | Read tools: list/get issues and PRs | Spec | Always live — no cache |
 | Firestore doc cache (24h TTL) | Spec | Intercepts `get_file_contents` for known doc paths; `src/github/docCache.js` |
 | `@smelly-bot tools` debug command | Spec | Static response listing all registered tools grouped by server; bypasses LLM, rate limiter, and progress indicator |
+| Tool invocation security layer | Spec | Pre-invocation validator in `callTool`; path allowlist for doc tools; generic error result to LLM on rejection |
+| User display name resolution | Spec | Bug fix: resolve Slack user IDs to display names via `users.info`; deduplicated per-invocation; LLM sees name + ID |
+| Local tool registration via `createMcpClient` | Spec | `refresh_repo_doc` and future local tools registered through same MCP layer; LLM sees them uniformly |
 | `refresh_repo_doc` local tool | Spec | LLM calls when context warrants; bypasses TTL; updates Firestore |
 | system.md updates | Spec | Topics to cover listed in spec; exact text written at implementation time |
 
