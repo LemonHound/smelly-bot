@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from '../src/github/tools.js';
 
 describe('makeRefreshRepoDocHandler', () => {
-  it('calls fetchDirect and returns content as tool result', async () => {
+  it('calls fetchDirect and returns content blocks as-is', async () => {
+    const blocks = [{ type: 'text', text: 'content of README.md' }];
     const docCache = {
-      fetchDirect: async (path) => `content of ${path}`,
+      fetchDirect: async () => blocks,
     };
     const handler = makeRefreshRepoDocHandler({ docCache });
     const result = await handler({ path: 'README.md' });
-    assert.deepEqual(result, [{ type: 'text', text: 'content of README.md' }]);
+    assert.deepEqual(result, blocks);
   });
 
   it('propagates errors from fetchDirect', async () => {

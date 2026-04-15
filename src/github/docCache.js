@@ -8,12 +8,6 @@ function cacheKey(owner, repo, path) {
   return `${owner}__${repo}__${path.replace(/\//g, '__')}`;
 }
 
-function extractText(result) {
-  return Array.isArray(result)
-    ? result.map(b => b.text ?? '').join('')
-    : String(result);
-}
-
 export function makeDocCache({ firestore, callTool, config }) {
   const [owner, repo] = config.GITHUB_REPO.split('/');
 
@@ -34,14 +28,20 @@ export function makeDocCache({ firestore, callTool, config }) {
 
     const key = cacheKey(owner, repo, path);
     logger.debug({ key, fetchedAt: doc.fetchedAt.toDate().toISOString() }, 'Doc cache hit');
-    return doc.content;
+
+    try {
+      return JSON.parse(doc.content);
+    } catch {
+      logger.warn({ key }, 'Failed to parse cached content, bypassing cache');
+      return null;
+    }
   }
 
   async function upsert(path, content) {
     const key = cacheKey(owner, repo, path);
     try {
       await firestore.collection(COLLECTION).doc(key).set({
-        content,
+        content: JSON.stringify(content),
         fetchedAt: FieldValue.serverTimestamp(),
       });
     } catch (err) {
@@ -54,16 +54,16 @@ export function makeDocCache({ firestore, callTool, config }) {
     if (cached !== null) return cached;
 
     const result = await callTool('get_file_contents', { owner, repo, path });
-    const text = extractText(result);
-    await upsert(path, text);
-    return text;
+    logger.debug({ path, blocks: result?.length }, 'Fetched file from MCP');
+    await upsert(path, result);
+    return result;
   }
 
   async function fetchDirect(path) {
     const result = await callTool('get_file_contents', { owner, repo, path });
-    const text = extractText(result);
-    await upsert(path, text);
-    return text;
+    logger.debug({ path, blocks: result?.length }, 'Force-fetched file from MCP');
+    await upsert(path, result);
+    return result;
   }
 
   return { get, upsert, getOrFetch, fetchDirect };
@@ -73,8 +73,7 @@ export function wrapCallToolWithCache(callTool, docCache, config) {
   const [owner, repo] = config.GITHUB_REPO.split('/');
   return async (toolName, args) => {
     if (toolName === 'get_file_contents' && args.owner === owner && args.repo === repo) {
-      const text = await docCache.getOrFetch(args.path);
-      return [{ type: 'text', text }];
+      return await docCache.getOrFetch(args.path);
     }
     return callTool(toolName, args);
   };
