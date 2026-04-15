@@ -23,6 +23,6 @@ const { tools, callTool } = await createMcpClient(mcpServers);
 
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
-const app = buildSlackApp({ config, reply });
+const app = await buildSlackApp({ config, reply });
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');

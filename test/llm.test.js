@@ -33,7 +33,8 @@ const errorClient = {
 
 const baseCtx = {
   channelName: 'general',
-  mentionUser: 'Alice',
+  mentionUserId: 'U111',
+  botUserId: 'UBOT',
   mentionText: 'say hi',
   threadMessages: null,
 };
@@ -130,13 +131,13 @@ describe('makeLlmReply', () => {
     await reply({
       ...baseCtx,
       threadMessages: [
-        { user: 'Bob', text: 'first message' },
-        { user: 'Carol', text: 'second message' },
+        { user: 'U222', text: 'first message' },
+        { user: 'U333', text: 'second message' },
       ],
     });
     const userContent = capturedPayload.messages[0].content;
-    assert.ok(userContent.includes('Bob: first message'), 'should include Bob message');
-    assert.ok(userContent.includes('Carol: second message'), 'should include Carol message');
+    assert.ok(userContent.includes('<@U222>: first message'), 'should include first user message with Slack tag');
+    assert.ok(userContent.includes('<@U333>: second message'), 'should include second user message with Slack tag');
   });
 
   it('does not include thread context label when threadMessages is null', async () => {
@@ -159,6 +160,27 @@ describe('makeLlmReply', () => {
     assert.ok(!userContent.includes('Thread context'), 'should not include thread context');
   });
 
+  it('includes bot user ID and today\'s date in the user message header', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({ ...baseCtx, botUserId: 'UBOTXYZ' });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('<@UBOTXYZ>'), 'should include bot user ID as Slack tag');
+    assert.ok(/\d{4}/.test(userContent), 'should include a year in the date');
+  });
+
   it('includes channel and user in the user message header', async () => {
     let capturedPayload;
     const reply = makeLlmReply({
@@ -174,10 +196,10 @@ describe('makeLlmReply', () => {
         },
       },
     });
-    await reply({ ...baseCtx, channelName: 'random', mentionUser: 'Dave' });
+    await reply({ ...baseCtx, channelName: 'random', mentionUserId: 'U999' });
     const userContent = capturedPayload.messages[0].content;
     assert.ok(userContent.includes('random'), 'should include channel name');
-    assert.ok(userContent.includes('Dave'), 'should include mention user');
+    assert.ok(userContent.includes('<@U999>'), 'should include mention user ID as Slack tag');
   });
 
   it('passes tool definitions to Claude when provided', async () => {

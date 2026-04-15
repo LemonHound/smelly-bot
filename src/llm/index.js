@@ -35,12 +35,18 @@ export function buildThreadContext(messages, maxChars) {
   return [root, ...included];
 }
 
-function buildUserMessage({ channelName, mentionUser, mentionText, threadMessages }) {
-  const parts = [`Channel: #${channelName} | Mentioned by: ${mentionUser}`];
+function todayString() {
+  return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function buildUserMessage({ channelName, mentionUserId, botUserId, mentionText, threadMessages }) {
+  const parts = [
+    `Date: ${todayString()} | Channel: #${channelName} | Mentioned by: <@${mentionUserId}> | You are: <@${botUserId}>`,
+  ];
   if (threadMessages && threadMessages.length > 0) {
     parts.push('Thread context:');
     for (const m of threadMessages) {
-      parts.push(`${m.user}: ${m.text}`);
+      parts.push(`<@${m.user}>: ${m.text}`);
     }
     parts.push('---');
   }
