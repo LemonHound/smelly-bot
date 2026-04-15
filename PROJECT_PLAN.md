@@ -92,6 +92,6 @@ Swap direct Octokit calls for an MCP server for GitHub actions, and add progress
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| Deploy to GCP (Cloud Run min-instances=1) | Idea | After M1 |
-| Secret Manager wiring | Idea | |
+| Deploy to GCP (Cloud Run min-instances=0) | Spec | See specs/gcp-deployment.md; Dockerfile + dual-mode Bolt in place |
+| Secret Manager wiring | Spec | Defined in gcp-deployment spec; wired manually in GCP console |
 | Observability (logs, error reporting) | Idea | |
