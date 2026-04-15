@@ -253,7 +253,20 @@ describe('wrapCallToolWithCache', () => {
     assert.deepEqual(result, [{ type: 'text', text: 'other repo result' }]);
   });
 
-  it('passes through non-file-contents tool calls unchanged', async () => {
+  it('normalizes unknown block types on passthrough calls (e.g. list_issues returning file blocks)', async () => {
+    const { wrapCallToolWithCache } = await import('../src/github/docCache.js');
+    const rawCallTool = async () => [{ type: 'file', file: { text: 'issue body here' } }];
+    const cache = makeDocCache({
+      firestore: makeFirestore({ snap: missingSnap }),
+      callTool: rawCallTool,
+      config: makeConfig(),
+    });
+    const wrapped = wrapCallToolWithCache(rawCallTool, cache, makeConfig());
+    const result = await wrapped('list_issues', { state: 'open' });
+    assert.deepEqual(result, [{ type: 'text', text: 'issue body here' }]);
+  });
+
+  it('passes through text blocks on passthrough calls unchanged', async () => {
     const { wrapCallToolWithCache } = await import('../src/github/docCache.js');
     const rawCallTool = async (name) => [{ type: 'text', text: `result:${name}` }];
     const cache = makeDocCache({
