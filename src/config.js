@@ -24,10 +24,10 @@ export function loadConfig() {
     RATE_LIMIT_PER_HOUR: Number(process.env.RATE_LIMIT_PER_HOUR) || 30,
     RATE_LIMIT_PER_DAY: Number(process.env.RATE_LIMIT_PER_DAY) || 200,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || null,
-    LOG_LLM_PAYLOADS: process.env.LOG_LLM_PAYLOADS === 'true',
     THREAD_CONTEXT_MAX_CHARS: Number(process.env.THREAD_CONTEXT_MAX_CHARS) || 6000,
     CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
     MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 400,
+    LLM_MAX_TOOL_ITERATIONS: Number(process.env.LLM_MAX_TOOL_ITERATIONS) || 5,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN || null,
     GITHUB_REPO: process.env.GITHUB_REPO || null,
   });

@@ -1,4 +1,5 @@
 import { composeFallback } from '../fallbacks.js';
+import { logger } from '../logger.js';
 
 const TIMEOUT_MS = 15_000;
 const RATE_LIMIT_TIMEOUT_MS = 3_000;
@@ -34,12 +35,18 @@ export function buildThreadContext(messages, maxChars) {
   return [root, ...included];
 }
 
-function buildUserMessage({ channelName, mentionUser, mentionText, threadMessages }) {
-  const parts = [`Channel: #${channelName} | Mentioned by: ${mentionUser}`];
+function todayString() {
+  return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function buildUserMessage({ channelName, mentionUserId, botUserId, mentionText, threadMessages }) {
+  const parts = [
+    `Date: ${todayString()} | Channel: #${channelName} | Mentioned by: <@${mentionUserId}> | You are: <@${botUserId}>`,
+  ];
   if (threadMessages && threadMessages.length > 0) {
     parts.push('Thread context:');
     for (const m of threadMessages) {
-      parts.push(`${m.user}: ${m.text}`);
+      parts.push(`<@${m.user}>: ${m.text}`);
     }
     parts.push('---');
   }
@@ -47,7 +54,14 @@ function buildUserMessage({ channelName, mentionUser, mentionText, threadMessage
   return parts.join('\n');
 }
 
-export function makeLlmReply({ config, prompts, rateLimit, anthropicClient }) {
+function buildSystemBlock({ systemMd, topicsMd }) {
+  return [
+    { type: 'text', text: systemMd },
+    { type: 'text', text: topicsMd, cache_control: { type: 'ephemeral' } },
+  ];
+}
+
+export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools = [], callTool = null }) {
   return async (ctx) => {
     let rateLimitOk = true;
     try {
@@ -57,43 +71,82 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient }) {
       const { ok } = await Promise.race([rateLimit.tryConsume(), deadline]);
       rateLimitOk = ok;
     } catch (err) {
-      console.error('Rate limiter unavailable, failing open:', err.message);
+      logger.error({ err: err.message }, 'Rate limiter unavailable, failing open');
     }
     if (!rateLimitOk) {
       return composeFallback();
     }
 
     const userMessage = buildUserMessage(ctx);
+    const systemBlock = buildSystemBlock(prompts);
 
-    if (config.LOG_LLM_PAYLOADS) {
-      console.log('[LLM payload]', JSON.stringify({
-        system: prompts,
-        messages: [{ role: 'user', content: userMessage }],
-      }, null, 2));
-    }
+    const messages = [{ role: 'user', content: userMessage }];
+    const payload = {
+      model: config.CLAUDE_MODEL,
+      max_tokens: config.MAX_OUTPUT_TOKENS,
+      system: systemBlock,
+      messages,
+      ...(tools.length > 0 ? { tools } : {}),
+    };
+
+    logger.debug({ payload }, 'LLM request');
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-      const response = await anthropicClient.messages.create(
-        {
-          model: config.CLAUDE_MODEL,
-          max_tokens: config.MAX_OUTPUT_TOKENS,
-          system: prompts,
-          messages: [{ role: 'user', content: userMessage }],
-        },
-        { signal: controller.signal }
-      );
+      let iterations = 0;
+      const maxIterations = config.LLM_MAX_TOOL_ITERATIONS ?? 5;
 
-      if (config.LOG_LLM_PAYLOADS) {
-        console.log('[LLM response]', JSON.stringify(response, null, 2));
+      while (iterations < maxIterations) {
+        iterations++;
+
+        const response = await anthropicClient.messages.create(
+          { ...payload, messages: [...payload.messages] },
+          { signal: controller.signal }
+        );
+
+        logger.debug({ response }, 'LLM response');
+
+        if (response.stop_reason === 'end_turn') {
+          const textBlock = response.content.find(b => b.type === 'text');
+          return textBlock ? textBlock.text : composeFallback();
+        }
+
+        if (response.stop_reason === 'tool_use') {
+          payload.messages = [...payload.messages, { role: 'assistant', content: response.content }];
+
+          const toolResultBlocks = await Promise.all(
+            response.content
+              .filter(b => b.type === 'tool_use')
+              .map(async (block) => {
+                try {
+                  const content = await callTool(block.name, block.input);
+                  return { type: 'tool_result', tool_use_id: block.id, content };
+                } catch (err) {
+                  logger.warn({ err: err.message, tool: block.name }, 'Tool call failed');
+                  return {
+                    type: 'tool_result',
+                    tool_use_id: block.id,
+                    is_error: true,
+                    content: [{ type: 'text', text: err.message }],
+                  };
+                }
+              })
+          );
+
+          payload.messages = [...payload.messages, { role: 'user', content: toolResultBlocks }];
+          continue;
+        }
+
+        const textBlock = response.content.find(b => b.type === 'text');
+        return textBlock ? textBlock.text : composeFallback();
       }
 
-      const textBlock = response.content.find(b => b.type === 'text');
-      return textBlock ? textBlock.text : composeFallback();
+      logger.warn({ iterations }, 'Max tool iterations reached, returning fallback');
+      return composeFallback();
     } catch (err) {
-      console.error('LLM call failed:', err.message);
+      logger.error({ err: err.message }, 'LLM call failed');
       return composeFallback();
     } finally {
       clearTimeout(timer);

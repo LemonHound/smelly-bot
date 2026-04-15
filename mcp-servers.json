@@ -1,0 +1,7 @@
+[
+  {
+    "name": "wikipedia",
+    "command": "npx",
+    "args": ["@shelm/wikipedia-mcp-server"]
+  }
+]

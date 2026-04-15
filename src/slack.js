@@ -1,5 +1,6 @@
 import bolt from '@slack/bolt';
 import { buildThreadContext } from './llm/index.js';
+import { logger } from './logger.js';
 
 const { App, LogLevel } = bolt;
 
@@ -64,15 +65,6 @@ export function makeProgressIndicator({ client, channel, ts, threadTs }) {
   return { stop };
 }
 
-async function resolveDisplayName(client, userId) {
-  try {
-    const result = await client.users.info({ user: userId });
-    return result.user?.profile?.display_name || result.user?.real_name || userId;
-  } catch {
-    return userId;
-  }
-}
-
 async function fetchThreadContext(client, event, maxChars) {
   const { thread_ts, ts, channel } = event;
   const isReplyInThread = thread_ts && thread_ts !== ts;
@@ -90,7 +82,7 @@ async function fetchThreadContext(client, event, maxChars) {
   return buildThreadContext(messages, maxChars);
 }
 
-export function buildSlackApp({ config, reply }) {
+export async function buildSlackApp({ config, reply }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
   const app = config.SLACK_APP_TOKEN
@@ -106,6 +98,9 @@ export function buildSlackApp({ config, reply }) {
         logLevel,
       });
 
+  const { user_id: botUserId } = await app.client.auth.test();
+  logger.info({ botUserId }, 'Bot identity confirmed');
+
   app.event('app_mention', async ({ event, client }) => {
     const threadTs = event.thread_ts ?? event.ts;
 
@@ -116,18 +111,19 @@ export function buildSlackApp({ config, reply }) {
       threadTs,
     });
 
-    const [mentionUser, threadMessages] = await Promise.all([
-      resolveDisplayName(client, event.user),
+    const [threadMessages, channelInfo] = await Promise.all([
       fetchThreadContext(client, event, config.THREAD_CONTEXT_MAX_CHARS),
+      client.conversations.info({ channel: event.channel }).catch(() => null),
     ]);
 
-    const channelInfo = await client.conversations.info({ channel: event.channel }).catch(() => null);
     const channelName = channelInfo?.channel?.name ?? event.channel;
+    const mentionText = event.text.replace(`<@${botUserId}>`, '').trim();
 
     const text = await reply({
       channelName,
-      mentionUser,
-      mentionText: event.text,
+      mentionUserId: event.user,
+      botUserId,
+      mentionText,
       threadMessages,
     });
 
@@ -141,7 +137,7 @@ export function buildSlackApp({ config, reply }) {
   });
 
   app.error(async (error) => {
-    console.error('Slack app error:', error);
+    logger.error({ err: error.message }, 'Slack app error');
   });
 
   return app;
