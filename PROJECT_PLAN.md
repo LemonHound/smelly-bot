@@ -79,11 +79,12 @@ See [specs/milestone-3-github-mcp.md](specs/milestone-3-github-mcp.md).
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| GitHub MCP server connection | Spec | Official `@modelcontextprotocol/server-github`; stdio; `GITHUB_TOKEN` from env |
-| `mcp-servers.json` extensions + `allowedTools` filter | Spec | M3 adds `env` + `allowedTools` fields to the M2-introduced file; filtering added to `client.js`; exact GitHub tool names confirmed at implementation |
+| GitHub MCP server connection | Spec | Official GitHub hosted MCP server via HTTP transport (`StreamableHttpClientTransport`); `GITHUB_TOKEN` via `$VAR` substitution in headers |
+| `mcp-servers.json` extensions | Spec | M3 adds `type` (stdio/http), `url`, `headers`, `allowedTools`; dual transport in `client.js`; default-deny allowlist; `disabledTools` removed |
 | Read tools: get file contents from target repo | Spec | README.md, CONTRIBUTING.md, ADR.md; lazy fetch |
 | Read tools: list/get issues and PRs | Spec | Always live — no cache |
 | Firestore doc cache (24h TTL) | Spec | Intercepts `get_file_contents` for known doc paths; `src/github/docCache.js` |
+| `@smelly-bot tools` debug command | Spec | Static response listing all registered tools grouped by server; bypasses LLM, rate limiter, and progress indicator |
 | `refresh_repo_doc` local tool | Spec | LLM calls when context warrants; bypasses TTL; updates Firestore |
 | system.md updates | Spec | Topics to cover listed in spec; exact text written at implementation time |
 

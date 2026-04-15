@@ -30,9 +30,14 @@ Rate-limited per-hour and per-day via Firestore-backed counters. Model: `claude-
 The bot is an MCP client. GitHub access uses the official GitHub MCP server rather than direct Octokit calls. Scope for M4: add comment on issue/PR, update issue/PR description. No issue creation in initial milestones.
 
 ### 7. MCP client architecture
-`src/mcp/client.js` launches configured MCP servers as stdio subprocesses at startup, merges their tool lists, and exposes a single `callTool(toolName, args)` executor. The LLM module receives tools and callTool as injected dependencies — it does not import from `src/mcp/` directly. If a server fails to start, the bot logs a warning and degrades gracefully to plain Claude.
+`src/mcp/client.js` connects to configured MCP servers at startup, merges their tool lists, and exposes a single `callTool(toolName, args)` executor. The LLM module receives tools and callTool as injected dependencies — it does not import from `src/mcp/` directly. If a server fails to connect, the bot logs a warning and degrades gracefully to plain Claude.
 
-MCP servers configured in `mcp-servers.json` in the project root (not `config.js`). The file is a JSON array of server entries. M2 shape: `name`, `command`, `args`. M3 extends with two optional fields: `env` (key/value pairs; `$VAR` values are resolved from `process.env` at load time) and `allowedTools` (string array; when present, `createMcpClient` filters `listTools()` output to only those names before merging — absent means all tools pass through). Adding or removing a server, or changing its allowed tools, requires editing this file and redeploying — no code change needed.
+MCP servers configured in `mcp-servers.json` in the project root (not `config.js`). The file is a JSON array of server entries. Each entry requires a `type` field: `"stdio"` or `"http"`.
+
+- **Stdio entries** (`type: "stdio"`): `command`, `args`, optional `env` overrides. Subprocess inherits the full parent `process.env`; `env` overrides are merged on top (`{ ...process.env, ...(server.env ?? {}) }`). No `$VAR` substitution needed — secrets are already present in `process.env`.
+- **HTTP entries** (`type: "http"`): `url`, optional `headers`. Header values containing `$VARNAME` are resolved from `process.env` at startup (once, baked into the transport); startup throws if a referenced var is missing. Uses `StreamableHttpClientTransport`; the client object is long-lived, reused for all tool calls.
+
+**`allowedTools` — default deny (fail closed):** every entry must declare an explicit `allowedTools` string array. Absent or empty = zero tools from that server reach the LLM. There is no all-pass mode. Adding or removing allowed tools requires editing the JSON and redeploying — no code change needed. A startup WARNING is logged when a server connects but contributes zero tools (misconfiguration signal).
 
 Firestore `docCache` collection (M3+): caches file contents fetched from the target GitHub repo. Document ID is `{owner}__{repo}__{path}` (forward slashes in path replaced with `__`). Documents store `content` and `fetchedAt`. TTL is 24h, checked on read. Cache fails open on Firestore unavailability (logs WARNING, falls through to GitHub MCP). Making the cached doc path list or TTL configurable is explicitly deferred — revisit if the doc set grows significantly.
 

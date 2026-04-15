@@ -9,255 +9,344 @@ live issue/PR data. A Firestore-backed cache with 24h TTL eliminates redundant
 fetches for static docs; an LLM-callable refresh tool lets the bot proactively
 pull fresh content when context warrants it.
 
-This milestone is primarily about wiring GitHub into the existing MCP client
-stack and giving the bot grounded, repo-aware Q&A capability. Write operations
-and confirmation UX are deferred to M4.
+This milestone also hardens the MCP client layer: dual transport support
+(stdio + HTTP), allowlist-only tool exposure with default-deny, `$VAR`
+substitution for HTTP headers, and a `@smelly-bot tools` debug command that
+bypasses the LLM entirely.
 
 Depends on: M2 (MCP client scaffolding + Wikipedia) landed and deployed.
 
 ## Scope
 
-### `mcp-servers.json` — GitHub server entry + M3 extensions
+### `mcp-servers.json` — extended format
 
-M2 introduced `mcp-servers.json` as a flat JSON array in the project root,
-loaded at startup by `src/index.js`. Each entry has `name`, `command`, and
-`args`. M3 adds the GitHub entry and extends the format with two new optional
-fields: `env` and `allowedTools`. Both are implemented in M3 — they do not
-exist in M2.
+M2 introduced `mcp-servers.json` as a flat JSON array loaded at startup. M3
+extends the format with `type`, `url`, `headers`, and `allowedTools`. The
+`type` field is required on every entry: `"stdio"` or `"http"`.
 
-M3 adds the following entry to `mcp-servers.json`:
-
+**Stdio entry shape:**
 ```json
-[
-  {
-    "name": "wikipedia",
-    "command": "npx",
-    "args": ["@shelm/wikipedia-mcp-server@<pinned-version>"]
-  },
-  {
-    "name": "github",
-    "command": "npx",
-    "args": ["@modelcontextprotocol/server-github@<pinned-version>"],
-    "env": { "GITHUB_TOKEN": "$GITHUB_TOKEN" },
-    "allowedTools": []
-  }
-]
+{
+  "name": "wikipedia",
+  "type": "stdio",
+  "command": "npx",
+  "args": ["wikipedia-mcp@1.0.3"],
+  "allowedTools": ["search", "readArticle"]
+}
 ```
 
-**Version pinning:** all entries must specify a pinned version. M2 shipped
-Wikipedia unpinned — pin it in the M3 PR alongside the GitHub entry.
+**HTTP entry shape:**
+```json
+{
+  "name": "github",
+  "type": "http",
+  "url": "https://api.githubcopilot.com/mcp/",
+  "headers": { "Authorization": "Bearer $GITHUB_TOKEN" },
+  "allowedTools": []
+}
+```
 
-**Env var substitution (new in M3):** `src/index.js` (or `src/mcp/client.js`)
-must resolve `$VAR` values in `env` objects from `process.env` before passing
-them to `createMcpClient`. The JSON file never contains actual secret values.
-If a referenced env var is missing, throw at startup.
+`allowedTools` starts empty for GitHub in this PR. The developer runs
+`@smelly-bot tools` after deploy to inspect the live tool list, then populates
+`allowedTools` and redeploys. No code change required to add tools — edit the
+JSON file and redeploy.
 
-**`allowedTools` filtering (new in M3):** `createMcpClient` in `src/mcp/client.js`
-must be extended to filter each server's `listTools()` response to only the
-names in `allowedTools` before merging into the flat tool array. When the field
-is absent, all tools pass through (preserving M2 behavior for Wikipedia).
-Exact GitHub tool names confirmed at implementation time by inspecting the live
-`listTools()` response. Intent: read-only tools only — write tools must not
-reach Claude before M4's confirmation UX is in place. To update the list:
-edit `mcp-servers.json`, redeploy — no code change required.
+**Version pinning:** `wikipedia-mcp` is currently invoked via `npx -y wikipedia-mcp`
+(unpinned). M3 pins it to `1.0.3` in `args`. HTTP servers have no local
+package to pin.
 
-`GITHUB_TOKEN` and `GITHUB_REPO` already exist in `config.js` and `.env.example`
-as of M2 (added as optional, `|| null`). M3 must make both required: add them
-to the required validation in `config.js` and remove the `|| null` fallbacks so
-startup fails fast if either is missing.
+**`allowedTools` — default deny (fail closed):** when `allowedTools` is absent
+or empty, zero tools from that server reach the LLM. This is intentional: a
+misconfigured or newly-added server contributes nothing until explicitly
+allowlisted. There is no "all tools pass through" mode.
 
-`GITHUB_REPO` is read from config and used as the default repository context
-in tool calls where a repo argument is required.
+### `src/mcp/client.js` — dual transport + allowlist refactor
+
+`createMcpClient` is extended to handle both transport types and the new
+allowlist semantics. The return signature gains `toolsByServer` alongside the
+existing `tools` and `callTool`.
+
+**Transport selection (branch on `server.type`):**
+
+- `"stdio"` — `StdioClientTransport`. Subprocess inherits the full parent
+  `process.env` plus any overrides in `server.env` (merged, not replaced):
+  `{ ...process.env, ...(server.env ?? {}) }`. No `$VAR` substitution —
+  secrets are already in `process.env`.
+
+- `"http"` — `StreamableHttpClientTransport`. Constructed once at startup with
+  resolved headers (see `$VAR` substitution below). Reused for every tool call
+  — no per-request spawning.
+
+**`$VAR` substitution (HTTP headers only):**
+
+Before constructing the HTTP transport, resolve header values. Any value
+matching `$VARNAME` is replaced with `process.env.VARNAME`. If the referenced
+var is absent, throw at startup with a clear error naming the missing var and
+the server entry. Substitution happens once at startup — the resolved value is
+baked into the transport object for the process lifetime.
+
+```js
+function resolveVars(obj) {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [
+      k,
+      typeof v === 'string' && v.startsWith('$')
+        ? requireEnvVar(v.slice(1))
+        : v,
+    ])
+  );
+}
+```
+
+**Allowlist filtering:**
+
+After `client.listTools()`, filter the response to only names present in
+`server.allowedTools`. If the field is absent or empty, zero tools pass
+through. The filter runs before merging into the flat `tools` array and before
+populating `toolIndex`.
+
+**Startup WARN on zero tools:** if a server connects successfully but
+contributes zero tools (either because `allowedTools` is empty/absent or
+because none of the listed names match what the server advertises), log a
+`WARNING`-severity pino entry including the server name and the raw tool names
+returned by `listTools()`. Makes misconfiguration immediately visible in GCP
+Cloud Logging without being a hard failure.
+
+**`disabledTools` removal:** the existing `disabledTools` blocklist field is
+removed. Any entry that used it must be migrated to `allowedTools`. M2's
+Wikipedia entry did not use `disabledTools` in `mcp-servers.json` (it existed
+only in the client code) — the code-side handling is removed with no config
+migration needed.
+
+**Return shape (extended):**
+
+```js
+return { tools, callTool, toolsByServer };
+// toolsByServer: Map<serverName, string[]> — tool names per server, post-filter
+```
+
+`toolsByServer` is used by the `@smelly-bot tools` handler. `tools` and
+`callTool` are unchanged — `llm/index.js` signature does not change.
+
+### `@smelly-bot tools` — debug command (LLM bypass)
+
+When the stripped mention text equals the exact string `"tools"` (case
+insensitive), the bot posts a static formatted response listing all registered
+tools grouped by server. The LLM is never invoked. The progress indicator is
+never started. Rate limiting is not applied.
+
+**Intercept point:** `src/slack.js`, in the `app_mention` handler. Compute
+`mentionText` before starting the progress indicator, then branch:
+
+```
+mentionText === "tools" (case insensitive)
+  → post tool list, return
+mentionText !== "tools"
+  → start progress indicator, fetch thread context, call reply(), post result
+```
+
+**Response format:**
+
+```
+*Registered MCP tools*
+
+*wikipedia:* search, readArticle
+*github:* (none — allowedTools is empty)
+
+To add tools, update allowedTools in mcp-servers.json and redeploy.
+```
+
+If no servers are registered or all have empty allowlists, the response still
+posts rather than silently dropping.
+
+`toolsByServer` is threaded from `src/index.js` into `buildSlackApp` as a new
+dependency (alongside `reply`).
+
+### `config.js` — GITHUB_TOKEN and GITHUB_REPO required
+
+Both vars exist in `config.js` as optional (`|| null`). M3 makes them required:
+add both to `ALWAYS_REQUIRED` and remove the `|| null` fallbacks. Startup
+throws if either is missing. Both already exist in `.env.example` and GCP
+Secret Manager.
 
 ### Firestore doc cache (`src/github/docCache.js`)
 
 Caches fetched file contents from the target repo. Issues and PRs are always
 live — only static doc files are cached.
 
-**Cache key:** `{owner}__{repo}__{path}` — e.g. `user__game-ai-hub__README.md`.
-Forward slashes cannot appear in Firestore document IDs (they are interpreted
-as path separators). The `__` separator is used between the owner, repo, and
-file path segments; any `/` within the path itself is also replaced with `__`.
-Each document is cached independently. Including owner and repo avoids
-collisions if a second target repo is added in a future milestone.
+**Cache key:** `{owner}__{repo}__{path}` — forward slashes in path replaced
+with `__`. Each document cached independently. Owner + repo in key prevents
+collisions if a second target repo is added later.
 
 **Firestore document shape:**
 ```js
-{
-  content: string,      // raw file content returned by GitHub MCP
-  fetchedAt: Timestamp, // Firestore server timestamp
-}
+{ content: string, fetchedAt: Timestamp }
 ```
 
-**Collection:** `docCache` (single collection, document ID is the cache key).
+**Collection:** `docCache`.
 
 **Read path:**
-1. Check Firestore for a document matching the cache key.
-2. If document exists and `fetchedAt` is within 24h → return `content`.
-3. Otherwise → call GitHub MCP `get_file_contents`, store result with current
-   timestamp, return `content`.
+1. Check Firestore for the cache key.
+2. Hit and `fetchedAt` within 24h → return `content`. Log DEBUG with key and
+   `fetchedAt`.
+3. Miss or stale → call GitHub MCP `get_file_contents`, upsert result, return
+   `content`.
 
-**Cache hit logging:** on a cache hit, log a `DEBUG`-severity pino entry
-including the cache key and `fetchedAt` timestamp. This is required for
-acceptance criterion verification — the only observable evidence that the
-cache was served rather than a GitHub MCP call.
+**Firestore unavailability:** fail open. Skip cache, call GitHub MCP directly,
+do not attempt to store. Log WARNING with key and error.
 
-**Firestore unavailability:** if the Firestore read fails for any reason, the
-cache fails open — skip the cache, call GitHub MCP directly, and return the
-result without attempting to store it. Log a `WARNING`-severity pino entry
-including the cache key and the error, so that ignored cache state is visible
-in GCP Cloud Logging for troubleshooting.
+**Write path:** upsert (always overwrites).
 
-**Write path:** always overwrites the document (upsert).
+**Integration point:** `callTool` routing. When tool is `get_file_contents`
+targeting a known doc path on `GITHUB_REPO`, the cache layer intercepts before
+the call reaches the MCP server. All other `get_file_contents` calls pass
+through unmodified.
 
-**Integration point:** the cache is invoked inside `callTool` routing. When the
-tool is `get_file_contents` and it targets a known doc path on the configured
-`GITHUB_REPO`, the cache layer intercepts the call before it reaches the MCP
-server. All other `get_file_contents` calls (different repo, different path)
-pass through to the MCP server unmodified.
-
-Known doc paths that route through cache:
+**Known doc paths:**
 ```
 README.md
 CONTRIBUTING.md
 ADR.md
 ```
 
-This list is defined as a constant alongside the whitelist. Extending it
-requires a code change.
+Defined as a constant in `src/github/tools.js`. Extending requires a code
+change.
+
+**`get_file_contents` argument shape:** the exact field names (`owner`, `repo`,
+`path` vs. other formats) are only knowable after inspecting the live
+`listTools()` response. Confirm at implementation time before wiring the cache
+intercept and key construction.
 
 ### `refresh_repo_doc` local tool
 
 A bot-defined tool (not from any MCP server) that the LLM can call to force a
-fresh fetch of a cached doc, bypassing the TTL check.
+fresh fetch of a cached doc, bypassing the TTL.
 
-**Schema (passed to Claude alongside MCP tools):**
+**Schema:**
 ```json
 {
   "name": "refresh_repo_doc",
-  "description": "Force a fresh fetch of a repo documentation file, bypassing the local cache. Use this when the user asks about recent changes or when the cached content may be stale.",
+  "description": "Force a fresh fetch of a repo documentation file, bypassing the local cache. Use when the user asks about recent changes or when the cached content may be stale.",
   "input_schema": {
     "type": "object",
     "properties": {
-      "path": {
-        "type": "string",
-        "description": "File path within the target repo, e.g. README.md"
-      }
+      "path": { "type": "string", "description": "File path within the target repo, e.g. README.md" }
     },
     "required": ["path"]
   }
 }
 ```
 
-**Path validation:** `refresh_repo_doc` only accepts paths in the known doc
-list (`README.md`, `CONTRIBUTING.md`, `ADR.md`). If the LLM passes any other
-path, the handler returns an error `tool_result` without calling GitHub MCP.
-This keeps the tool's blast radius bounded to the three known documents.
+**Path validation:** only accepts paths in the known doc list. Any other path
+returns an error `tool_result` without calling GitHub MCP.
 
-**Execution:** when `callTool` routes a `refresh_repo_doc` call with a valid
-path, it:
-1. Calls GitHub MCP `get_file_contents` directly (no cache check).
-2. Writes the result to Firestore (upsert, updating `fetchedAt`).
-3. Returns the fresh content to Claude as the tool result.
+**Execution:** calls GitHub MCP `get_file_contents` directly (no cache check),
+upserts to Firestore, returns fresh content as the tool result.
 
-Local tools are registered in the same flat tool array as MCP tools. `callTool`
-routing checks tool name first — if it matches a local handler, it runs
-locally; otherwise it routes to the named MCP server as before.
+**Registration:** local tools are merged into the same flat `tools` array as
+MCP tools. `callTool` checks tool name first — local handler runs if matched,
+otherwise routes to MCP server.
 
 ### Lazy fetch behavior
 
-Docs are not fetched at startup. The first LLM call that triggers
-`get_file_contents` for a cached path will incur the fetch latency (typically
-1-2s for small markdown files). Subsequent calls within 24h are served from
-Firestore. This is acceptable given the file sizes and cache hit rate.
+Docs are not fetched at startup. First call to `get_file_contents` for a
+cached path incurs fetch latency; subsequent calls within 24h are served from
+Firestore. No prewarming, no background refresh.
 
-No prewarming, no background refresh job.
+### `system.md` — topics to cover
 
-### system.md — notes for implementation
+Do not prescribe specific prompt text here. Record the topics that `system.md`
+must address for M3 to work correctly:
 
-`system.md` will be in a different state by the time M3 implementation begins.
-Do not prescribe specific prompt text here. Instead, record the _topics_ that
-system.md must cover for M3 to work correctly:
-
-- When the bot should reach for GitHub tools vs. answer from training knowledge
-- When to call `refresh_repo_doc` vs. use the cached `get_file_contents` result
-- How to handle issue and PR questions (these are always live — no cache caveat
-  to communicate to the user)
-- How to frame repo-grounded answers (cite the doc, don't hallucinate structure)
-- Appropriate routing for project-state questions ("what's the roadmap?",
-  "how do I contribute?", "why was X chosen?", "what issues are open?")
+- When to reach for GitHub tools vs. answer from training knowledge
+- When to call `refresh_repo_doc` vs. use cached `get_file_contents`
+- That issues and PRs are always fetched live (no cache caveat to surface to user)
+- How to frame repo-grounded answers (cite the doc, do not hallucinate structure)
+- Routing for project-state questions: "what's the roadmap?", "how do I
+  contribute?", "why was X chosen?", "what issues are open?"
 
 ### Module layout
 
 ```
 src/
   mcp/
-    client.js        # extended: local tool registry + whitelist filter
+    client.js       # dual transport, allowlist filter, toolsByServer, $VAR resolution
   github/
-    docCache.js      # Firestore-backed doc cache + refresh logic
-    tools.js         # known doc paths constant + refresh_repo_doc schema
+    docCache.js     # Firestore-backed cache + fail-open logic
+    tools.js        # known doc paths constant + refresh_repo_doc schema + local handler
+  slack.js          # @smelly-bot tools intercept + toolsByServer threading
+  index.js          # threads toolsByServer from createMcpClient into buildSlackApp
 ```
 
-`src/github/` is a new directory. `docCache.js` imports `firestore.js` and
-accepts `callTool` as an injected dependency (keeps it testable without live
-MCP servers).
+`src/github/` is a new directory. `docCache.js` accepts `callTool` as an
+injected dependency (keeps it testable without live MCP servers).
 
 `llm/index.js` receives the merged tool list (MCP tools + local tools) and the
-unified `callTool` function — its signature does not change from M2.
+unified `callTool` — signature unchanged from M2.
 
 ## Non-goals
 
 - Write operations: add comment, update issue/PR description (M4).
 - Emoji confirmation UX (M4).
-- Caching issue or PR data — issues/PRs are always fetched live.
+- Caching issue or PR data — always fetched live.
 - Scanning Slack channel history to proactively surface related issues.
 - Fetching files outside `GITHUB_REPO`.
-- Dynamic cache TTL configuration (24h is hardcoded). Making the cached doc
-  path list and TTL configurable is deferred; revisit if the doc set grows
-  significantly. Noted in ADR as a deferred decision.
+- Dynamic cache TTL or configurable doc path list — deferred; revisit if doc
+  set grows. Noted in ADR as a deferred decision.
 - Background cache refresh (no cron, no prewarming).
+- Per-user auth for the `@smelly-bot tools` command — it's a debug tool, not
+  gated.
 
 ## Acceptance criteria
 
 1. `@smelly-bot what does the README say about [topic]?` → bot calls
-   `get_file_contents("README.md")`, retrieves content from Firestore cache (or
-   fetches and caches on first call), and answers grounded in the actual file.
-   Verify via debug logs: tool_use block appears in Claude response, tool_result
-   contains file content.
+   `get_file_contents("README.md")`, retrieves from Firestore cache (or fetches
+   and caches on first call), answers grounded in the actual file. Verify via
+   debug logs: `tool_use` block in Claude response, `tool_result` contains file
+   content.
 
-2. Same question asked a second time within 24h → debug logs show no outbound
-   GitHub MCP call; Firestore cache is served directly.
+2. Same question within 24h → debug logs show no outbound GitHub MCP call;
+   Firestore cache served. (Cache hit DEBUG log must appear.)
 
 3. `@smelly-bot are there any open issues?` → bot calls `list_issues`, returns
-   real issue data from the GitHub MCP server. Response is grounded in actual
-   open issues.
+   real issue data. Response grounded in actual open issues.
 
 4. `@smelly-bot what PRs are open?` → bot calls `list_pull_requests` or
-   `get_pull_request`, returns real PR data. Response is grounded in actual
-   open PRs.
+   equivalent, returns real PR data.
 
-5. `@smelly-bot check if the docs are current` (or equivalent phrasing that
-   implies staleness concern) → bot calls `refresh_repo_doc`, Firestore is
-   updated, debug logs confirm a fresh GitHub MCP fetch occurred.
+5. `@smelly-bot check if the docs are current` → bot calls `refresh_repo_doc`,
+   Firestore is updated, debug logs confirm a fresh GitHub MCP fetch occurred.
 
 6. No write tools appear in the tool list passed to Claude. Confirm by
-   inspecting the debug-logged outgoing payload — only whitelisted tool names
-   are present in the `tools` array.
+   inspecting the debug-logged outgoing payload — only allowlisted tool names
+   present in the `tools` array.
 
-7. If the GitHub MCP server fails to start, the bot logs a WARNING-severity
-   pino entry and continues functioning as a plain Claude + Wikipedia bot.
+7. If the GitHub MCP server is unreachable at startup, the bot logs a
+   WARNING-severity pino entry and continues as a plain Claude + Wikipedia bot.
    No crash, no unhandled rejection.
 
-8. `GITHUB_TOKEN` and `GITHUB_REPO` are required by `config.js` — startup
-   throws if either is missing. (Both already exist in `.env.example` from M2.)
+8. `GITHUB_TOKEN` and `GITHUB_REPO` missing → startup throws with a clear
+   error message naming the missing vars.
 
-9. PROJECT_PLAN.md rows for M3 flip to Implemented in the same PR.
+9. `@smelly-bot tools` → static tool list posted, no LLM call, no progress
+   indicator, no rate limit applied. Tool names grouped by server.
+
+10. Server connects but all tools filtered by allowlist → WARNING log with
+    server name and raw tool list from `listTools()`.
+
+11. `PROJECT_PLAN.md` rows for M3 flip to Implemented in the same PR.
 
 ## Open questions
 
-- **`get_file_contents` argument shape** — The cache intercept fires when a
-  `get_file_contents` call targets a known doc path on `GITHUB_REPO`. The
-  exact argument structure (separate `owner`, `repo`, `path` fields vs. other
-  formats) is only knowable after inspecting the live `listTools()` response
-  from the GitHub MCP server. Confirm at implementation time and wire the
-  cache key construction accordingly.
+- **GitHub hosted MCP server URL:** assumed `https://api.githubcopilot.com/mcp/`
+  based on GitHub's MCP announcements. Confirm the exact URL and required auth
+  header format (Bearer token vs. other scheme) at implementation start by
+  checking GitHub's official MCP documentation.
+
+- **`get_file_contents` argument shape:** exact field names only knowable after
+  inspecting the live `listTools()` response. Confirm at implementation time
+  and wire cache key construction accordingly.
+
+- **`StreamableHttpClientTransport` availability in `@modelcontextprotocol/sdk@^1.29.0`:**
+  confirm the exact import path and constructor signature before implementing
+  the HTTP transport branch.
