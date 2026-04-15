@@ -85,12 +85,20 @@ async function fetchThreadContext(client, event, maxChars) {
 }
 
 export function buildSlackApp({ config, reply }) {
-  const app = new App({
-    token: config.SLACK_BOT_TOKEN,
-    appToken: config.SLACK_APP_TOKEN,
-    socketMode: true,
-    logLevel: config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO,
-  });
+  const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
+
+  const app = config.SLACK_APP_TOKEN
+    ? new App({
+        token: config.SLACK_BOT_TOKEN,
+        appToken: config.SLACK_APP_TOKEN,
+        socketMode: true,
+        logLevel,
+      })
+    : new App({
+        token: config.SLACK_BOT_TOKEN,
+        signingSecret: config.SLACK_SIGNING_SECRET,
+        logLevel,
+      });
 
   app.event('app_mention', async ({ event, client }) => {
     const threadTs = event.thread_ts ?? event.ts;

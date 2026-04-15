@@ -1,14 +1,21 @@
-const REQUIRED = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'GOOGLE_CLOUD_PROJECT'];
+const ALWAYS_REQUIRED = ['SLACK_BOT_TOKEN', 'GOOGLE_CLOUD_PROJECT'];
 
 export function loadConfig() {
-  const missing = REQUIRED.filter(k => !process.env[k]);
+  const missing = ALWAYS_REQUIRED.filter(k => !process.env[k]);
+
+  const isSocketMode = Boolean(process.env.SLACK_APP_TOKEN);
+  if (!isSocketMode && !process.env.SLACK_SIGNING_SECRET) {
+    missing.push('SLACK_SIGNING_SECRET');
+  }
+
   if (missing.length) {
     throw new Error(`Missing required env vars: ${missing.join(', ')}`);
   }
 
   return Object.freeze({
     SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN,
-    SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN,
+    SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN || null,
+    SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET || null,
     GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
     FIRESTORE_DATABASE_ID: process.env.FIRESTORE_DATABASE_ID,
     FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || null,

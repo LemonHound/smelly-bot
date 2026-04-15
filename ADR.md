@@ -14,11 +14,11 @@ A silly Slack bot for a private friend-group channel. Future goals:
 ### 1. Language & runtime: Node.js (JavaScript, ESM), Node 20+
 Chosen for the maturity of `@slack/bolt` and simplicity. ESM so we can use top-level await.
 
-### 2. Slack transport: Socket Mode via `@slack/bolt`
-No public HTTP ingress required. Outbound websocket to Slack. Simpler local dev and cheaper hosting (Cloud Run or a small VM, no load balancer).
+### 2. Slack transport: dual-mode — Socket Mode locally, HTTP webhooks in production
+`SLACK_APP_TOKEN` present → Bolt starts in Socket Mode (outbound WebSocket, no public URL needed). `SLACK_APP_TOKEN` absent → Bolt starts in HTTP mode using `SLACK_SIGNING_SECRET` (inbound POST from Slack). Mode is implicit — no separate flag. Socket Mode is also toggled on the Slack app itself (api.slack.com) to match.
 
-### 3. Hosting: GCP (Cloud Run, min-instances=1, or GCE e2-micro)
-Long-lived process is required for Socket Mode. Cloud Run with a warm instance is the default. Secrets via Secret Manager, surfaced as env vars.
+### 3. Hosting: GCP Cloud Run (us-central1), min-instances=0
+HTTP webhook mode means Cloud Run can scale to zero — Slack's inbound POST wakes the instance. min-instances=1 is not required (and was previously listed erroneously as a constraint of Socket Mode). Images built via Cloud Build trigger on push to `main`, stored in Artifact Registry. Secrets via Secret Manager.
 
 ### 4. Config: `.env` locally, env vars in prod
 `.env.example` is the source of truth for required variables. `.env` is gitignored. Prod loads the same names from Secret Manager.

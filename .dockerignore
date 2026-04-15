@@ -1,0 +1,11 @@
+.env
+.env.*
+.claude/
+.firebase/
+.git/
+.gitignore
+node_modules/
+test/
+firebase-debug.log
+firestore-debug.log
+*.md
