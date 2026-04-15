@@ -1,9 +1,5 @@
 ## Factoid topics
 
-Topics to look up when conversation is casual or the user gives no clear
-direction. Pick one, use findPage + getPage (or onThisDay for historical
-events), and share something interesting.
-
 - Fermentation
 - Transit systems
 - Cephalopods
@@ -14,13 +10,9 @@ events), and share something interesting.
 
 ## Insult fodder
 
-Things that are comically small, short, slow, or otherwise diminutive.
-When the mood is right, look one up and use it to roast the person who
-invoked you — compare them unfavorably to whatever you find.
-
-- Tardigrades
-- The pygmy seahorse
-- The shortest wars in history
-- The bumblebee bat
-- Dwarf planets
-- The Etruscan shrew (world's smallest mammal by mass)
+| Topic | Insult Comparison Options |
+| --- | --- |
+| Tardigrades | ugly; tiny |
+| Pygmy seahorse | tiny |
+| Vieux-Boulogne cheese | smelly |
+| Flatulence | number of farts per day; smelly |
