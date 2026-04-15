@@ -2,6 +2,7 @@
   {
     "name": "wikipedia",
     "command": "npx",
-    "args": ["@shelm/wikipedia-mcp-server"]
+    "args": ["@shelm/wikipedia-mcp-server"],
+    "disabledTools": ["onThisDay"]
   }
 ]

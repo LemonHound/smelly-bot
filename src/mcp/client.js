@@ -24,14 +24,20 @@ export async function createMcpClient(servers) {
       env: server.env ?? undefined,
     });
 
+    const disabled = new Set(server.disabledTools ?? []);
+
     try {
       await client.connect(transport);
       const { tools: serverTools } = await client.listTools();
-      for (const tool of serverTools) {
+      const enabledTools = serverTools.filter(t => !disabled.has(t.name));
+      for (const tool of enabledTools) {
         toolIndex.set(tool.name, { client, serverName: server.name });
         tools.push(toAnthropicTool(tool));
       }
-      logger.info({ server: server.name, toolCount: serverTools.length }, 'MCP server connected');
+      logger.info(
+        { server: server.name, tools: enabledTools.map(t => t.name), disabled: [...disabled] },
+        'MCP server connected',
+      );
     } catch (err) {
       logger.warn({ server: server.name, err: err.message }, 'MCP server failed to start, continuing without it');
     }
