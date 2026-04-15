@@ -22,6 +22,13 @@ Statuses:
 
 Specs live in `specs/<short-name>.md`. One spec per milestone or discrete scaffolding change. Specs include: Goal, Scope, Non-goals, Acceptance criteria, Open questions.
 
+## Logging convention
+
+All log output uses pino via the shared `src/logger.js` instance. Never use
+`console.log` or `console.error` in any `src/` module. Log levels map to GCP
+severity: `debug` → DEBUG, `info` → INFO, `warn` → WARNING, `error` → ERROR.
+LLM payloads are always logged at `debug` — no feature flag needed.
+
 ## Docs that must stay aligned
 
 - `PROJECT_PLAN.md` — deliverable status

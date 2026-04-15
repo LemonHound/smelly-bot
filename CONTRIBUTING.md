@@ -6,9 +6,11 @@ Small, agile project. Keep changes minimal and obvious.
 
 1. Fork/branch from `main`.
 2. `npm install` once.
-3. Copy `.env.example` to `.env` and fill in Slack tokens (see README).
-4. `npm run dev` - Node's `--watch` restarts on save.
+3. Copy `.env.example` to `.env` and fill in required vars (see README).
+4. `npm run dev | pino-pretty` — restarts on save (nodemon), formats logs for human reading.
 5. Test by `@smelly-bot`-mentioning the bot in its channel.
+
+Omit the `pino-pretty` pipe if you want raw JSON (e.g. to verify GCP field names).
 
 ## Project layout
 
@@ -34,6 +36,22 @@ Add new features as focused modules under `src/` and wire them into `src/index.j
 - Code changes: PR into `main`. Rules may be added later; for now direct commits to `main` are allowed while bootstrapping.
 - Dependency bumps: `npm install <pkg>@latest`, commit the `package.json` + `package-lock.json` together.
 - Behavior changes worth remembering: add a section to `ADR.md`.
+
+## Logging
+
+All log output goes through pino. Import and use the shared instance:
+
+```js
+import { logger } from './logger.js';
+
+logger.info({ userId }, 'rate limit consumed');
+logger.warn({ err }, 'MCP server failed to start');
+logger.debug({ payload }, 'outgoing LLM payload');
+```
+
+Never call `console.log` or `console.error` in `src/`. Pino writes JSON to
+stdout; Cloud Run ingests it into Cloud Logging automatically with correct
+severity levels.
 
 ## Style
 
