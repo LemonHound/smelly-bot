@@ -59,7 +59,6 @@ describe('createMcpClient — allowlist', () => {
     const result = await createMcpClient(
       [{ name: 'myserver', type: 'stdio', command: 'noop', args: [], allowedTools: ['toolA'] }],
       [],
-      null,
       clientFactory(['toolA', 'toolB', 'toolC'])
     );
     const names = result.tools.map(t => t.name);
@@ -77,7 +76,6 @@ describe('createMcpClient — allowlist', () => {
     const result = await createMcpClient(
       [{ name: 'myserver', type: 'stdio', command: 'noop', args: [] }],
       [],
-      null,
       clientFactory(['toolA', 'toolB'])
     );
     assert.equal(result.tools.filter(t => t.name === 'toolA' || t.name === 'toolB').length, 0);
@@ -89,7 +87,6 @@ describe('createMcpClient — allowlist', () => {
     const result = await createMcpClient(
       [{ name: 'myserver', type: 'stdio', command: 'noop', args: [], allowedTools: ['nonexistent'] }],
       [],
-      null,
       clientFactory(['toolA', 'toolB'])
     );
     assert.equal(result.tools.length, 0);
@@ -108,14 +105,14 @@ describe('createMcpClient — local tools', () => {
         handler: async () => [{ type: 'text', text: 'local result' }],
       },
     ];
-    const result = await createMcpClient([], localTools, null);
+    const result = await createMcpClient([], localTools);
     assert.ok(result.tools.some(t => t.name === 'my_local_tool'), 'local tool in tools array');
     assert.ok(result.toolsByServer.has('local'), 'toolsByServer has local key');
     assert.ok(result.toolsByServer.get('local').some(t => t.name === 'my_local_tool'));
   });
 
   it('local key present even with no local tools', async () => {
-    const result = await createMcpClient([], [], null);
+    const result = await createMcpClient([], []);
     assert.ok(result.toolsByServer.has('local'));
     assert.deepEqual(result.toolsByServer.get('local'), []);
   });
@@ -129,7 +126,7 @@ describe('createMcpClient — local tools', () => {
         handler: async ({ msg }) => [{ type: 'text', text: `echo:${msg}` }],
       },
     ];
-    const { callTool } = await createMcpClient([], localTools, null);
+    const { callTool } = await createMcpClient([], localTools);
     const result = await callTool('echo_tool', { msg: 'hello' });
     assert.deepEqual(result, [{ type: 'text', text: 'echo:hello' }]);
   });
@@ -147,7 +144,6 @@ describe('createMcpClient — server connect failure', () => {
         { name: 'good', type: 'stdio', command: 'noop', args: [], allowedTools: ['goodTool'] },
       ],
       [],
-      null,
       throwingFactory
     );
     assert.ok(result.tools.some(t => t.name === 'goodTool'), 'good server tools should be present');
@@ -160,57 +156,21 @@ describe('createMcpClient — server connect failure', () => {
 
 describe('createMcpClient — security layer', () => {
   it('unknown tool returns error result', async () => {
-    const { callTool } = await createMcpClient([], [], null);
+    const { callTool } = await createMcpClient([], []);
     const result = await callTool('nonexistent_tool', {});
     assert.deepEqual(result, [{ type: 'text', text: 'Tool call failed.' }]);
   });
 
-  it('get_file_contents with invalid path targeting GITHUB_REPO returns error result', async () => {
-    const localTools = [{
-      name: 'get_file_contents',
-      description: 'stub',
-      input_schema: { type: 'object', properties: {} },
-      handler: async () => [{ type: 'text', text: 'should not reach' }],
-    }];
-    const { callTool } = await createMcpClient([], localTools, 'owner/myrepo');
-    const result = await callTool('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'secrets.txt' });
-    assert.deepEqual(result, [{ type: 'text', text: 'Tool call failed.' }]);
-  });
-
-  it('get_file_contents with valid doc path on GITHUB_REPO passes through', async () => {
+  it('get_file_contents passes through for any path', async () => {
     const localTools = [{
       name: 'get_file_contents',
       description: 'stub',
       input_schema: { type: 'object', properties: {} },
       handler: async ({ path }) => [{ type: 'text', text: `content:${path}` }],
     }];
-    const { callTool } = await createMcpClient([], localTools, 'owner/myrepo');
-    const result = await callTool('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'README.md' });
-    assert.deepEqual(result, [{ type: 'text', text: 'content:README.md' }]);
-  });
-
-  it('get_file_contents for different repo bypasses path check', async () => {
-    const localTools = [{
-      name: 'get_file_contents',
-      description: 'stub',
-      input_schema: { type: 'object', properties: {} },
-      handler: async ({ path }) => [{ type: 'text', text: `content:${path}` }],
-    }];
-    const { callTool } = await createMcpClient([], localTools, 'owner/myrepo');
-    const result = await callTool('get_file_contents', { owner: 'other', repo: 'repo', path: 'anything.txt' });
-    assert.deepEqual(result, [{ type: 'text', text: 'content:anything.txt' }]);
-  });
-
-  it('refresh_repo_doc with invalid path returns error result', async () => {
-    const localTools = [{
-      name: 'refresh_repo_doc',
-      description: 'stub',
-      input_schema: { type: 'object', properties: {} },
-      handler: async () => [{ type: 'text', text: 'should not reach' }],
-    }];
-    const { callTool } = await createMcpClient([], localTools, 'owner/myrepo');
-    const result = await callTool('refresh_repo_doc', { path: 'secrets.txt' });
-    assert.deepEqual(result, [{ type: 'text', text: 'Tool call failed.' }]);
+    const { callTool } = await createMcpClient([], localTools);
+    const result = await callTool('get_file_contents', { owner: 'owner', repo: 'myrepo', path: 'src/index.js' });
+    assert.deepEqual(result, [{ type: 'text', text: 'content:src/index.js' }]);
   });
 });
 
@@ -219,7 +179,6 @@ describe('createMcpClient — MCP server callTool', () => {
     const result = await createMcpClient(
       [{ name: 'myserver', type: 'stdio', command: 'noop', args: [], allowedTools: ['toolA'] }],
       [],
-      null,
       clientFactory(['toolA'])
     );
     const output = await result.callTool('toolA', {});

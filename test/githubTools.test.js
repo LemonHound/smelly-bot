@@ -1,18 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { KNOWN_DOC_PATHS, REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from '../src/github/tools.js';
-
-describe('KNOWN_DOC_PATHS', () => {
-  it('contains the three expected paths', () => {
-    assert.ok(KNOWN_DOC_PATHS.includes('README.md'));
-    assert.ok(KNOWN_DOC_PATHS.includes('CONTRIBUTING.md'));
-    assert.ok(KNOWN_DOC_PATHS.includes('ADR.md'));
-  });
-
-  it('is frozen', () => {
-    assert.ok(Object.isFrozen(KNOWN_DOC_PATHS));
-  });
-});
+import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from '../src/github/tools.js';
 
 describe('makeRefreshRepoDocHandler', () => {
   it('calls fetchDirect and returns content as tool result', async () => {
