@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "dev": "nodemon --ignore 'firebase-debug.log' --ignore 'firestore-debug.log' --ignore '.firebase/' --ignore '*.log' src/index.js",
     "test": "node --test test/llm.test.js test/slack.test.js"
   },
   "dependencies": {
@@ -18,5 +18,8 @@
     "@google-cloud/firestore": "^7.11.0",
     "@slack/bolt": "^3.22.0",
     "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
