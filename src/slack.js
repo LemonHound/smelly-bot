@@ -101,11 +101,18 @@ async function fetchThreadContext(client, event, maxChars) {
 
 export function buildToolsMessage(toolsByServer) {
   const lines = ['*Registered MCP tools*', ''];
-  for (const [serverName, toolNames] of toolsByServer) {
-    const toolList = toolNames.length > 0 ? toolNames.join(', ') : '(none — allowedTools is empty)';
-    lines.push(`*${serverName}:* ${toolList}`);
+  for (const [serverName, tools] of toolsByServer) {
+    if (tools.length === 0) {
+      lines.push(`*${serverName}:* (none)`);
+    } else {
+      lines.push(`*${serverName}:*`);
+      for (const tool of tools) {
+        lines.push(`  ${tool.name} \u2014 ${tool.description}`);
+      }
+    }
+    lines.push('');
   }
-  lines.push('', 'To add tools, update allowedTools in mcp-servers.json and redeploy.');
+  lines.push('To enable tools for the LLM, add them to allowedTools in mcp-servers.json and redeploy.');
   return lines.join('\n');
 }
 
