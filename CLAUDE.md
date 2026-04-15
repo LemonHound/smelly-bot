@@ -40,3 +40,10 @@ Tests live in `test/`. Any change that alters the behavior or signature of a tes
 - `specs/*.md` — acceptance criteria
 
 If code contradicts a spec or ADR, update the doc (or the code) in the same change. Don't leave drift.
+
+## Code Hygiene
+
+Whenever working with code (or by extension, GitHub), use the guidelines below:
+1. Pull latest code from `main` if there's reasonable suspicion that local code could be stale
+2. When committing code, check that the current branch isn't associated to a closed PR; switch to a new working branch if necessary.
+3. When code is pushed to a PR, check that there are no merge conflicts reported. If CI runs, watch it and resolve minor issues automatically.
