@@ -17,7 +17,6 @@
     "@anthropic-ai/sdk": "^0.89.0",
     "@google-cloud/firestore": "^7.11.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@shelm/wikipedia-mcp-server": "^1.0.1",
     "@slack/bolt": "^3.22.0",
     "dotenv": "^16.4.5",
     "pino": "^10.3.1"
