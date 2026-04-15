@@ -15,7 +15,6 @@ export const REFRESH_REPO_DOC_SCHEMA = {
 
 export function makeRefreshRepoDocHandler({ docCache }) {
   return async ({ path }) => {
-    const text = await docCache.fetchDirect(path);
-    return [{ type: 'text', text }];
+    return await docCache.fetchDirect(path);
   };
 }
