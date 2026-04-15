@@ -4,13 +4,28 @@
     "type": "stdio",
     "command": "npx",
     "args": ["-y", "wikipedia-mcp@1.0.3"],
-    "allowedTools": ["search", "readArticle"]
+    "allowedTools": [
+      "search",
+      "readArticle"
+    ]
   },
   {
     "name": "github",
     "type": "http",
     "url": "https://api.githubcopilot.com/mcp/",
     "headers": { "Authorization": "Bearer $GITHUB_TOKEN" },
-    "allowedTools": []
+    "allowedTools": [
+      "add_comment_to_pending_review",
+      "add_issue_comment",
+      "add_reply_to_pull_request_comment",
+      "get_file_contents",
+      "issue_read",
+      "issue_write",
+      "list_issues",
+      "list_pull_requests",
+      "pull_request_read",
+      "search_issues",
+      "search_pull_requests"
+    ]
   }
 ]
