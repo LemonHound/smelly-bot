@@ -100,16 +100,14 @@ export async function createMcpClient(servers, localTools = [], githubRepo = nul
         );
       }
 
-      const serverToolNames = [];
       for (const tool of enabledTools) {
         toolIndex.set(tool.name, { client, serverName: server.name });
         tools.push(toAnthropicTool(tool));
-        serverToolNames.push(tool.name);
       }
-      toolsByServer.set(server.name, serverToolNames);
+      toolsByServer.set(server.name, serverTools.map(t => ({ name: t.name, description: t.description ?? '' })));
 
       logger.info(
-        { server: server.name, tools: serverToolNames },
+        { server: server.name, enabled: enabledTools.map(t => t.name), total: serverTools.length },
         'MCP server connected'
       );
     } catch (err) {
@@ -118,13 +116,13 @@ export async function createMcpClient(servers, localTools = [], githubRepo = nul
     }
   }
 
-  const localToolNames = [];
+  const localToolEntries = [];
   for (const tool of localTools) {
     toolIndex.set(tool.name, { handler: tool.handler, serverName: 'local' });
     tools.push({ name: tool.name, description: tool.description, input_schema: tool.input_schema });
-    localToolNames.push(tool.name);
+    localToolEntries.push({ name: tool.name, description: tool.description ?? '' });
   }
-  toolsByServer.set('local', localToolNames);
+  toolsByServer.set('local', localToolEntries);
 
   async function callTool(toolName, args) {
     const validation = validateToolCall(toolName, args, toolIndex, githubRepo);

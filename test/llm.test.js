@@ -436,6 +436,48 @@ describe('buildThreadContext', () => {
   });
 });
 
+describe('buildUserMessage with githubRepo', () => {
+  it('includes Target repo in header when GITHUB_REPO is set in config', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig({ GITHUB_REPO: 'myorg/myrepo' }),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply(baseCtx);
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('Target repo: myorg/myrepo'), 'should include GITHUB_REPO in header');
+  });
+
+  it('omits Target repo line when GITHUB_REPO is not set', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig({ GITHUB_REPO: undefined }),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply(baseCtx);
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(!userContent.includes('Target repo'), 'should not include Target repo line');
+  });
+});
+
 describe('buildUserMessage with displayName', () => {
   it('includes both display name and userId in header when mentionDisplayName provided', async () => {
     let capturedPayload;

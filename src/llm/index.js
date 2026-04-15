@@ -40,13 +40,13 @@ function todayString() {
   return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages }) {
+function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, githubRepo }) {
   const mentionLabel = mentionDisplayName
     ? `${mentionDisplayName} (<@${mentionUserId}>)`
     : `<@${mentionUserId}>`;
-  const parts = [
-    `Date: ${todayString()} | Channel: #${channelName} | Mentioned by: ${mentionLabel} | You are: <@${botUserId}>`,
-  ];
+  const meta = [`Date: ${todayString()}`, `Channel: #${channelName}`, `Mentioned by: ${mentionLabel}`, `You are: <@${botUserId}>`];
+  if (githubRepo) meta.push(`Target repo: ${githubRepo}`);
+  const parts = [meta.join(' | ')];
   if (threadMessages && threadMessages.length > 0) {
     parts.push('Thread context:');
     for (const m of threadMessages) {
@@ -82,7 +82,7 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
       return composeFallback();
     }
 
-    const userMessage = buildUserMessage(ctx);
+    const userMessage = buildUserMessage({ ...ctx, githubRepo: config.GITHUB_REPO });
     const systemBlock = buildSystemBlock(prompts);
 
     const messages = [{ role: 'user', content: userMessage }];
