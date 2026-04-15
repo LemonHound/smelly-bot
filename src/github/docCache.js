@@ -8,6 +8,16 @@ function cacheKey(owner, repo, path) {
   return `${owner}__${repo}__${path.replace(/\//g, '__')}`;
 }
 
+function normalizeForClaude(blocks) {
+  if (!Array.isArray(blocks)) return [{ type: 'text', text: String(blocks) }];
+  return blocks.map(b => {
+    if (b.type === 'resource') {
+      return { type: 'text', text: b.resource?.text ?? b.resource?.blob ?? '' };
+    }
+    return b;
+  });
+}
+
 export function makeDocCache({ firestore, callTool, config }) {
   const [owner, repo] = config.GITHUB_REPO.split('/');
 
@@ -53,17 +63,19 @@ export function makeDocCache({ firestore, callTool, config }) {
     const cached = await get(path);
     if (cached !== null) return cached;
 
-    const result = await callTool('get_file_contents', { owner, repo, path });
-    logger.debug({ path, blocks: result?.length }, 'Fetched file from MCP');
-    await upsert(path, result);
-    return result;
+    const raw = await callTool('get_file_contents', { owner, repo, path });
+    const normalized = normalizeForClaude(raw);
+    logger.debug({ path, blocks: normalized.length }, 'Fetched file from MCP');
+    await upsert(path, normalized);
+    return normalized;
   }
 
   async function fetchDirect(path) {
-    const result = await callTool('get_file_contents', { owner, repo, path });
-    logger.debug({ path, blocks: result?.length }, 'Force-fetched file from MCP');
-    await upsert(path, result);
-    return result;
+    const raw = await callTool('get_file_contents', { owner, repo, path });
+    const normalized = normalizeForClaude(raw);
+    logger.debug({ path, blocks: normalized.length }, 'Force-fetched file from MCP');
+    await upsert(path, normalized);
+    return normalized;
   }
 
   return { get, upsert, getOrFetch, fetchDirect };
