@@ -8,13 +8,15 @@ function cacheKey(owner, repo, path) {
   return `${owner}__${repo}__${path.replace(/\//g, '__')}`;
 }
 
+const CLAUDE_CONTENT_TYPES = new Set(['text', 'image', 'document', 'search_result', 'tool_reference']);
+
 function normalizeForClaude(blocks) {
   if (!Array.isArray(blocks)) return [{ type: 'text', text: String(blocks) }];
   return blocks.map(b => {
-    if (b.type === 'resource') {
-      return { type: 'text', text: b.resource?.text ?? b.resource?.blob ?? '' };
-    }
-    return b;
+    if (CLAUDE_CONTENT_TYPES.has(b.type)) return b;
+    const inner = b[b.type];
+    const text = b.text ?? inner?.text ?? inner?.blob ?? inner?.content ?? JSON.stringify(b);
+    return { type: 'text', text };
   });
 }
 
@@ -87,6 +89,7 @@ export function wrapCallToolWithCache(callTool, docCache, config) {
     if (toolName === 'get_file_contents' && args.owner === owner && args.repo === repo) {
       return await docCache.getOrFetch(args.path);
     }
-    return callTool(toolName, args);
+    const result = await callTool(toolName, args);
+    return normalizeForClaude(result);
   };
 }
