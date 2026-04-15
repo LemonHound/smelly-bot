@@ -42,56 +42,54 @@ See [specs/milestone-1-claude-integration.md](specs/milestone-1-claude-integrati
 | Progress indicator (reactions + status message) | Implemented | Pulled forward from M5; emoji phases + edited status message |
 | Rate limiter fail-open with 3s timeout | Implemented | `Promise.race` guard; no hang on Firestore unavailability |
 
----
-> Milestones 2–5 below are **Idea** status. No spec files exist yet. Each needs a spec written and reviewed before implementation begins.
----
-
-## Milestone 2 — Answer questions about target repo
-
-May require a larger model (context window) than M1's Haiku.
-
-| Deliverable | Status | Notes |
-|---|---|---|
-| GitHub client module (direct REST via Octokit) | Idea | MCP path lives in M5 |
-| Read README + root `*.md` from `GITHUB_REPO` | Idea | |
-| Inject repo context into Claude prompts | Idea | Stable across calls |
-| Prompt caching on system block (incl. repo context) | Idea | First milestone where caching actually pays off |
-| Q&A routing ("what does X do", "can it Y yet") | Idea | |
-
-## Milestone 3 — Infer and create issues from chat
-
-| Deliverable | Status | Notes |
-|---|---|---|
-| Channel history scan (configurable window) | Idea | |
-| Issue-detection prompt | Idea | |
-| Create issue on target repo | Idea | |
-| Confirmation UX in Slack before creation | Idea | Avoid noisy issue spam |
-
-## Milestone 4 — Triage existing issues
-
-| Deliverable | Status | Notes |
-|---|---|---|
-| List + read existing issues | Idea | |
-| Duplicate / stale detection prompt | Idea | |
-| Update / close / link issues | Idea | |
-| Audit log in Slack thread | Idea | |
-
-## Milestone 5 — MCP + progress UX
-
-Swap direct Octokit calls for an MCP server for GitHub actions, and add progress feedback in Slack so users know the bot is working.
-
-| Deliverable | Status | Notes |
-|---|---|---|
-| GitHub MCP server wired up | Idea | Replaces or fronts M2/M3/M4 Octokit usage |
-| Migrate M2-M4 GitHub actions to MCP tools | Idea | |
-| Streaming progress UX (ephemeral or edited message) | Implemented | Pulled into M1; see progress indicator row above |
-| No mid-flight user input re-ingestion | Non-goal | Snapshot at invocation; re-prompt requires new `@-mention` |
-| Retry policy for non-LLM-costing failures | Idea | e.g. transient Slack/GitHub 5xx; never re-call Claude on retry |
-
 ## Cross-cutting
 
 | Deliverable | Status | Notes |
 |---|---|---|
-| Deploy to GCP (Cloud Run min-instances=0) | Spec | See specs/gcp-deployment.md; Dockerfile + dual-mode Bolt in place |
-| Secret Manager wiring | Spec | Defined in gcp-deployment spec; wired manually in GCP console |
+| Deploy to GCP (Cloud Run) | Done | HTTP mode only going forward; Socket Mode retained as local troubleshooting fallback only |
+| Secret Manager wiring | Done | Secrets managed in GCP console |
 | Observability (logs, error reporting) | Idea | |
+
+---
+> Milestones 2–4 below are the current roadmap. All are Idea status unless noted. Each needs a spec written and reviewed before implementation begins.
+---
+
+## Milestone 2 — MCP client scaffolding + Wikipedia
+
+Primary goal: build and validate the full MCP client stack (tool registration, tool-use loop, result ingestion) using Wikipedia as a safe, low-stakes first server. Bot gains the ability to look up real-world facts and defaults to surfacing random factoids about pre-configured topics when conversation is casual.
+
+See [specs/milestone-2-mcp-wikipedia.md](specs/milestone-2-mcp-wikipedia.md).
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| `@modelcontextprotocol/sdk` wired as MCP client | Spec | |
+| Wikipedia MCP server connection (stdio) | Spec | |
+| MCP server config layer | Spec | Which servers to start + connect to |
+| Tool-use loop in `makeLlmReply` | Spec | Multi-turn: tool_use → execute → tool_result → continue |
+| Prompt caching on system block | Spec | First milestone where block is large enough to benefit |
+| Pre-configured topic list in `prompts/topics.md` | Spec | Bot's default "interests" for casual mentions |
+| `@smelly-bot` surfaces factoids using Wikipedia tool | Spec | LLM decides when to call it |
+
+## Milestone 3 — GitHub read via MCP
+
+Connect to the official GitHub MCP server. Bot can answer questions about the target repo by reading its markdown documentation.
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| GitHub MCP server connection | Idea | Official `@modelcontextprotocol/server-github` |
+| Read tools: get file contents from target repo | Idea | README.md, CONTRIBUTING.md, ADR.md |
+| Firestore cache for fetched docs (TTL-based staleness) | Idea | Auto-refresh when stale |
+| LLM-triggered doc refresh tool | Idea | LLM calls refresh when context warrants it |
+| Q&A routing for repo questions | Idea | No code routing — LLM decides based on context |
+
+## Milestone 4 — GitHub write via MCP + emoji confirmation UX
+
+Add write tools scoped to comments and descriptions only. Introduce emoji reaction as confirmation UX — a pattern needed for all write operations going forward.
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| Write tools: add comment to issue/PR | Idea | Via GitHub MCP server |
+| Write tools: update issue/PR description | Idea | Via GitHub MCP server |
+| Emoji confirmation UX | Idea | Bot previews action + reacts with options; user reacts to confirm/cancel |
+| `reaction_added` event handler | Idea | New Slack event scope required |
+| Timeout/cancel on no reaction | Idea | Configurable window, default ~5 min |
