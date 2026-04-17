@@ -25,7 +25,11 @@
       "list_pull_requests",
       "pull_request_read",
       "search_issues",
-      "search_pull_requests"
+      "search_pull_requests",
+      "list_workflow_runs",
+      "get_workflow_run",
+      "list_workflow_run_artifacts",
+      "list_workflow_jobs"
     ]
   }
 ]

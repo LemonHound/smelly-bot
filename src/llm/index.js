@@ -1,7 +1,7 @@
 import { composeFallback } from '../fallbacks.js';
 import { logger } from '../logger.js';
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 45_000;
 const RATE_LIMIT_TIMEOUT_MS = 3_000;
 
 export function buildThreadContext(messages, maxChars) {
