@@ -25,9 +25,11 @@ export function loadConfig() {
     RATE_LIMIT_PER_DAY: Number(process.env.RATE_LIMIT_PER_DAY) || 200,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || null,
     THREAD_CONTEXT_MAX_CHARS: Number(process.env.THREAD_CONTEXT_MAX_CHARS) || 6000,
+    CHANNEL_HISTORY_MAX_CHARS: Number(process.env.CHANNEL_HISTORY_MAX_CHARS) || 4000,
+    CHANNEL_HISTORY_LIMIT: Number(process.env.CHANNEL_HISTORY_LIMIT) || 20,
     CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
-    MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 400,
-    LLM_MAX_TOOL_ITERATIONS: Number(process.env.LLM_MAX_TOOL_ITERATIONS) || 5,
+    MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 1024,
+    SESSION_TTL_MS: Number(process.env.SESSION_TTL_MS) || 30 * 60 * 1000,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_REPO: process.env.GITHUB_REPO,
   });
