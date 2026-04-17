@@ -9,6 +9,7 @@ import { makeLlmReply } from './llm/index.js';
 import { createMcpClient } from './mcp/client.js';
 import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
+import { makeSessionStore } from './session.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
 
@@ -19,6 +20,7 @@ const firestore = getFirestore(config);
 const rateLimit = makeRateLimit({ firestore, config });
 const prompts = loadPrompts();
 const anthropicClient = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+const sessionStore = makeSessionStore({ firestore, config });
 
 let docCache = null;
 
@@ -37,6 +39,6 @@ const callTool = wrapCallToolWithCache(rawCallTool, docCache, config);
 
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
-const app = await buildSlackApp({ config, reply, toolsByServer });
+const app = await buildSlackApp({ config, reply, toolsByServer, sessionStore });
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');

@@ -119,3 +119,13 @@ MVP phase: approve-once only (no stored auth). Augment in a second phase with
 | Slash command for authorization listing | Idea | Registered in Slack app config; surfaces in Slack's command list as explicit fallback alongside NL intent |
 | Authorization revocation via emoji | Idea | User reacts to auth listing message with a tool's emoji → silently removes that auth from Firestore; no message changes; fails silently if auth doesn't exist |
 | Pending action cleanup | Idea | Strategy TBD for orphaned pending actions where no reaction ever arrives |
+
+## Milestone 5 — Richer context + auto-reply sessions + prompt overhaul
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| Remove tool-use iteration cap | Implemented | `src/llm/index.js`; unbounded tool-use loop |
+| Remove thread-only gate | Implemented | `src/slack.js`; bot responds to top-level and threaded mentions alike |
+| Channel history context | Implemented | Recent channel messages + up to 3 other thread summaries passed to LLM; `src/slack.js` `fetchChannelContext` |
+| Auto-reply sessions (Firestore TTL) | Implemented | `src/session.js`; 30-min TTL per thread keyed by `thread_ts`; refreshed on explicit `@smelly-bot` mention; scoped to originating thread only |
+| Prompt overhaul | Implemented | `prompts/system.md`: roast mode loosened (search Wikipedia freely, prioritize conversation context), fact mode removed, GitHub guidance broadened with natural-language routing, response length rules tightened, affirmations banned |

@@ -169,6 +169,7 @@ function makeSlackClient({ usersInfoName = 'Alice', usersInfoThrows = false } = 
     conversations: {
       info: async () => ({ channel: { name: 'general' } }),
       replies: async () => ({ messages: [] }),
+      history: async () => ({ messages: [] }),
     },
     users: {
       info: async ({ user }) => {
@@ -192,12 +193,25 @@ function makeMockBoltApp(slackClient) {
   };
 }
 
+function makeSessionStore({ active = false } = {}) {
+  const touched = [];
+  return {
+    touched,
+    touch: async (threadTs) => { touched.push(threadTs); },
+    isActive: async () => active,
+    remove: async () => {},
+  };
+}
+
 const baseConfig = {
   SLACK_BOT_TOKEN: 'xoxb-test',
   SLACK_APP_TOKEN: null,
   SLACK_SIGNING_SECRET: 'secret',
   LOG_LEVEL: 'info',
   THREAD_CONTEXT_MAX_CHARS: 6000,
+  CHANNEL_HISTORY_MAX_CHARS: 4000,
+  CHANNEL_HISTORY_LIMIT: 20,
+  SESSION_TTL_MS: 1_800_000,
 };
 
 describe('buildToolsMessage', () => {
@@ -317,5 +331,157 @@ describe('display name resolution', () => {
       client: slackClient,
     });
     assert.equal(capturedCtx.mentionDisplayName, 'U999', 'should fall back to raw user ID');
+  });
+});
+
+describe('session store integration', () => {
+  it('app_mention touches session with threadTs', async () => {
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore();
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => 'ok',
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> hello', ts: 'ts1', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.ok(sessionStore.touched.includes('thread1'), 'should touch the session with thread_ts');
+  });
+
+  it('app_mention uses ts as threadTs when there is no thread_ts', async () => {
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore();
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => 'ok',
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['app_mention']({
+      event: { text: '<@UBOT> hello', ts: 'toplevel-ts', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.ok(sessionStore.touched.includes('toplevel-ts'), 'should touch the session with ts when no thread_ts');
+  });
+});
+
+describe('message event auto-reply', () => {
+  it('invokes reply when session is active for a threaded message', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore({ active: true });
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'auto-reply'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'hey bot', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, true, 'should call reply when session is active');
+  });
+
+  it('does not invoke reply when session is inactive', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore({ active: false });
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'hey bot', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should not call reply when session is inactive');
+  });
+
+  it('ignores bot messages', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore({ active: true });
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'bot message', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', bot_id: 'B001' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should not call reply for bot messages');
+  });
+
+  it('ignores messages that contain a bot mention (handled by app_mention)', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore({ active: true });
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: '<@UBOT> do something', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should not call reply for messages containing bot mention');
+  });
+
+  it('ignores top-level messages without thread_ts', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    const sessionStore = makeSessionStore({ active: true });
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'top level message', ts: 'toplevel-ts', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should not call reply for top-level messages');
+  });
+
+  it('does nothing when sessionStore is not provided', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'hey', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should not call reply when no sessionStore');
   });
 });

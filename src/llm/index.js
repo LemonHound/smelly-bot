@@ -40,15 +40,40 @@ function todayString() {
   return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, githubRepo }) {
+function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, channelMessages, otherThreads, githubRepo }) {
   const mentionLabel = mentionDisplayName
     ? `${mentionDisplayName} (<@${mentionUserId}>)`
     : `<@${mentionUserId}>`;
   const meta = [`Date: ${todayString()}`, `Channel: #${channelName}`, `Mentioned by: ${mentionLabel}`, `You are: <@${botUserId}>`];
   if (githubRepo) meta.push(`Target repo: ${githubRepo}`);
   const parts = [meta.join(' | ')];
+
+  if (channelMessages && channelMessages.length > 0) {
+    parts.push('Recent channel messages:');
+    for (const m of channelMessages) {
+      const label = m.displayName ? `${m.displayName} (<@${m.userId}>)` : (m.user ? `<@${m.user}>` : `<@${m.userId}>`);
+      parts.push(`${label}: ${m.text}`);
+    }
+    parts.push('---');
+  }
+
+  if (otherThreads && otherThreads.length > 0) {
+    parts.push('Other recent threads in this channel:');
+    for (const thread of otherThreads) {
+      const rootLabel = thread.root.displayName
+        ? `${thread.root.displayName} (<@${thread.root.userId}>)`
+        : (thread.root.user ? `<@${thread.root.user}>` : `<@${thread.root.userId}>`);
+      parts.push(`[Thread] ${rootLabel}: ${thread.root.text}`);
+      for (const r of thread.replies) {
+        const rLabel = r.displayName ? `${r.displayName} (<@${r.userId}>)` : (r.user ? `<@${r.user}>` : `<@${r.userId}>`);
+        parts.push(`  ${rLabel}: ${r.text}`);
+      }
+    }
+    parts.push('---');
+  }
+
   if (threadMessages && threadMessages.length > 0) {
-    parts.push('Thread context:');
+    parts.push('Current thread context:');
     for (const m of threadMessages) {
       const label = m.displayName ? `${m.displayName} (<@${m.userId}>)` : (m.user ? `<@${m.user}>` : `<@${m.userId}>`);
       parts.push(`${label}: ${m.text}`);
@@ -97,11 +122,7 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
     logger.debug({ payload }, 'LLM request');
 
     try {
-      let iterations = 0;
-      const maxIterations = config.LLM_MAX_TOOL_ITERATIONS ?? 5;
-
-      while (iterations < maxIterations) {
-        iterations++;
+      while (true) {
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -151,9 +172,6 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
         const textBlock = response.content.find(b => b.type === 'text');
         return textBlock ? textBlock.text : composeFallback();
       }
-
-      logger.warn({ iterations }, 'Max tool iterations reached, returning fallback');
-      return composeFallback();
     } catch (err) {
       logger.error({ err: err.message }, 'LLM call failed');
       return composeFallback();

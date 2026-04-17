@@ -74,20 +74,15 @@ function resolveDisplayName(client, userId, cache) {
   return promise;
 }
 
-async function fetchThreadContext(client, event, maxChars) {
-  const { thread_ts, ts, channel } = event;
-  const isReplyInThread = thread_ts && thread_ts !== ts;
-  if (!isReplyInThread) return null;
-
+async function fetchThreadMessages(client, channel, threadTs, maxChars, nameCache) {
   let replies;
   try {
-    const result = await client.conversations.replies({ channel, ts: thread_ts });
+    const result = await client.conversations.replies({ channel, ts: threadTs });
     replies = result.messages ?? [];
   } catch {
     return null;
   }
 
-  const nameCache = new Map();
   const messages = await Promise.all(
     replies.map(async (m) => {
       const userId = m.user ?? 'unknown';
@@ -97,6 +92,59 @@ async function fetchThreadContext(client, event, maxChars) {
   );
 
   return buildThreadContext(messages, maxChars);
+}
+
+async function fetchChannelContext(client, event, config, nameCache) {
+  const { channel, ts, thread_ts } = event;
+  const currentThreadTs = thread_ts ?? ts;
+  const limit = config.CHANNEL_HISTORY_LIMIT;
+  const maxChars = config.CHANNEL_HISTORY_MAX_CHARS;
+
+  let historyMessages = [];
+  try {
+    const result = await client.conversations.history({ channel, limit });
+    historyMessages = result.messages ?? [];
+  } catch {
+    return { channelMessages: [], otherThreads: [] };
+  }
+
+  const topLevelMessages = historyMessages.filter(m => !m.thread_ts || m.thread_ts === m.ts);
+  const threadRoots = historyMessages.filter(
+    m => m.thread_ts && m.thread_ts === m.ts && m.reply_count > 0 && m.thread_ts !== currentThreadTs
+  );
+
+  const channelMsgs = await Promise.all(
+    topLevelMessages.map(async (m) => {
+      const userId = m.user ?? 'unknown';
+      const displayName = await resolveDisplayName(client, userId, nameCache);
+      return { userId, displayName, text: m.text ?? '' };
+    })
+  );
+
+  const otherThreads = [];
+  for (const rootMsg of threadRoots.slice(0, 3)) {
+    try {
+      const result = await client.conversations.replies({ channel, ts: rootMsg.ts });
+      const replies = (result.messages ?? []).slice(1, 4);
+      const rootUserId = rootMsg.user ?? 'unknown';
+      const rootDisplayName = await resolveDisplayName(client, rootUserId, nameCache);
+      const replyMsgs = await Promise.all(
+        replies.map(async (r) => {
+          const userId = r.user ?? 'unknown';
+          const displayName = await resolveDisplayName(client, userId, nameCache);
+          return { userId, displayName, text: r.text ?? '' };
+        })
+      );
+      otherThreads.push({
+        root: { userId: rootUserId, displayName: rootDisplayName, text: rootMsg.text ?? '' },
+        replies: replyMsgs,
+      });
+    } catch {
+      // skip threads that fail to load
+    }
+  }
+
+  return { channelMessages: buildThreadContext(channelMsgs, maxChars), otherThreads };
 }
 
 export function buildToolsMessage(toolsByServer) {
@@ -116,7 +164,7 @@ export function buildToolsMessage(toolsByServer) {
   return lines.join('\n');
 }
 
-export async function buildSlackApp({ config, reply, toolsByServer, _createApp = null }) {
+export async function buildSlackApp({ config, reply, toolsByServer, sessionStore = null, _createApp = null }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
   const app = _createApp
@@ -137,18 +185,8 @@ export async function buildSlackApp({ config, reply, toolsByServer, _createApp =
   const { user_id: botUserId } = await app.client.auth.test();
   logger.info({ botUserId }, 'Bot identity confirmed');
 
-  app.event('app_mention', async ({ event, client }) => {
+  async function handleInvocation({ event, client, mentionText }) {
     const threadTs = event.thread_ts ?? event.ts;
-    const mentionText = event.text.replace(`<@${botUserId}>`, '').trim();
-
-    if (mentionText.toLowerCase() === 'tools') {
-      await client.chat.postMessage({
-        channel: event.channel,
-        thread_ts: threadTs,
-        text: buildToolsMessage(toolsByServer),
-      });
-      return;
-    }
 
     const indicator = makeProgressIndicator({
       client,
@@ -158,8 +196,9 @@ export async function buildSlackApp({ config, reply, toolsByServer, _createApp =
     });
 
     const nameCache = new Map();
-    const [threadMessages, channelInfo, mentionDisplayName] = await Promise.all([
-      fetchThreadContext(client, event, config.THREAD_CONTEXT_MAX_CHARS),
+    const [threadMessages, { channelMessages, otherThreads }, channelInfo, mentionDisplayName] = await Promise.all([
+      fetchThreadMessages(client, event.channel, threadTs, config.THREAD_CONTEXT_MAX_CHARS, nameCache),
+      fetchChannelContext(client, event, config, nameCache),
       client.conversations.info({ channel: event.channel }).catch(() => null),
       resolveDisplayName(client, event.user, nameCache),
     ]);
@@ -173,6 +212,8 @@ export async function buildSlackApp({ config, reply, toolsByServer, _createApp =
       botUserId,
       mentionText,
       threadMessages,
+      channelMessages,
+      otherThreads,
     });
 
     await indicator.stop();
@@ -182,6 +223,41 @@ export async function buildSlackApp({ config, reply, toolsByServer, _createApp =
       thread_ts: threadTs,
       text,
     });
+  }
+
+  app.event('app_mention', async ({ event, client }) => {
+    const threadTs = event.thread_ts ?? event.ts;
+    const mentionText = event.text.replace(`<@${botUserId}>`, '').trim();
+
+    if (mentionText.toLowerCase() === 'tools') {
+      await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: threadTs,
+        text: buildToolsMessage(toolsByServer),
+      });
+      return;
+    }
+
+    if (sessionStore) {
+      await sessionStore.touch(threadTs);
+    }
+
+    await handleInvocation({ event, client, mentionText });
+  });
+
+  app.event('message', async ({ event, client }) => {
+    if (!sessionStore) return;
+    if (event.bot_id) return;
+    if (!event.text) return;
+    if (event.text.includes(`<@${botUserId}>`)) return;
+
+    const threadTs = event.thread_ts;
+    if (!threadTs) return;
+
+    const active = await sessionStore.isActive(threadTs);
+    if (!active) return;
+
+    await handleInvocation({ event, client, mentionText: event.text });
   });
 
   app.error(async (error) => {

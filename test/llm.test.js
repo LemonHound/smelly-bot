@@ -4,9 +4,9 @@ import { makeLlmReply, buildThreadContext } from '../src/llm/index.js';
 
 const makeConfig = (overrides = {}) => ({
   CLAUDE_MODEL: 'claude-haiku-4-5',
-  MAX_OUTPUT_TOKENS: 400,
+  MAX_OUTPUT_TOKENS: 1024,
   THREAD_CONTEXT_MAX_CHARS: 6000,
-  LLM_MAX_TOOL_ITERATIONS: 5,
+  CHANNEL_HISTORY_MAX_CHARS: 4000,
   ...overrides,
 });
 
@@ -140,6 +140,66 @@ describe('makeLlmReply', () => {
     assert.ok(userContent.includes('<@U333>: second message'), 'should include second user message with Slack tag');
   });
 
+  it('includes channelMessages in user content when provided', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({
+      ...baseCtx,
+      channelMessages: [
+        { userId: 'U10', displayName: 'Eve', text: 'channel msg one' },
+        { userId: 'U11', displayName: 'Frank', text: 'channel msg two' },
+      ],
+    });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('Recent channel messages'), 'should include channel messages section header');
+    assert.ok(userContent.includes('channel msg one'), 'should include first channel message');
+    assert.ok(userContent.includes('channel msg two'), 'should include second channel message');
+  });
+
+  it('includes otherThreads in user content when provided', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({
+      ...baseCtx,
+      otherThreads: [
+        {
+          root: { userId: 'U20', displayName: 'Grace', text: 'thread root text' },
+          replies: [
+            { userId: 'U21', displayName: 'Hank', text: 'thread reply text' },
+          ],
+        },
+      ],
+    });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('Other recent threads'), 'should include other threads section header');
+    assert.ok(userContent.includes('thread root text'), 'should include thread root');
+    assert.ok(userContent.includes('thread reply text'), 'should include thread reply');
+  });
+
   it('does not include thread context label when threadMessages is null', async () => {
     let capturedPayload;
     const reply = makeLlmReply({
@@ -157,7 +217,7 @@ describe('makeLlmReply', () => {
     });
     await reply({ ...baseCtx, threadMessages: null });
     const userContent = capturedPayload.messages[0].content;
-    assert.ok(!userContent.includes('Thread context'), 'should not include thread context');
+    assert.ok(!userContent.includes('Current thread context'), 'should not include thread context');
   });
 
   it('includes bot user ID and today\'s date in the user message header', async () => {
@@ -338,32 +398,6 @@ describe('makeLlmReply', () => {
     const userTurn = secondCall.messages.find(m => m.role === 'user' && Array.isArray(m.content));
     const toolResult = userTurn.content.find(b => b.type === 'tool_result');
     assert.equal(toolResult.is_error, true);
-  });
-
-  it('returns static fallback when max tool iterations exceeded', async () => {
-    let callCount = 0;
-    const reply = makeLlmReply({
-      config: makeConfig({ LLM_MAX_TOOL_ITERATIONS: 2 }),
-      prompts: makePrompts(),
-      rateLimit: okRateLimit,
-      tools: [{ name: 'findPage', description: 'find', input_schema: { type: 'object', properties: {} } }],
-      callTool: async () => [{ type: 'text', text: 'result' }],
-      anthropicClient: {
-        messages: {
-          create: async () => {
-            callCount++;
-            return {
-              stop_reason: 'tool_use',
-              content: [{ type: 'tool_use', id: `tu_${callCount}`, name: 'findPage', input: { query: 'x' } }],
-            };
-          },
-        },
-      },
-    });
-
-    const result = await reply(baseCtx);
-    assert.match(result, /^:/, 'should return fallback when iterations exceeded');
-    assert.equal(callCount, 2, 'should stop at max iterations');
   });
 
   it('works without tools or callTool (plain Claude mode)', async () => {
