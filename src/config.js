@@ -28,7 +28,7 @@ export function loadConfig() {
     CHANNEL_HISTORY_MAX_CHARS: Number(process.env.CHANNEL_HISTORY_MAX_CHARS) || 4000,
     CHANNEL_HISTORY_LIMIT: Number(process.env.CHANNEL_HISTORY_LIMIT) || 20,
     CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
-    MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 1024,
+    MAX_OUTPUT_TOKENS: Number(process.env.MAX_OUTPUT_TOKENS) || 4096,
     SESSION_TTL_MS: Number(process.env.SESSION_TTL_MS) || 30 * 60 * 1000,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_REPO: process.env.GITHUB_REPO,
