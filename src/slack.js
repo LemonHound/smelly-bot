@@ -2,6 +2,18 @@ import bolt from '@slack/bolt';
 import { buildThreadContext } from './llm/index.js';
 import { logger } from './logger.js';
 
+function buildChannelContext(messages, maxChars) {
+  let total = 0;
+  const included = [];
+  for (const m of messages) {
+    const chars = `${m.displayName ?? m.userId}: ${m.text}`.length;
+    if (total + chars > maxChars) break;
+    total += chars;
+    included.push(m);
+  }
+  return included.reverse();
+}
+
 const { App, LogLevel } = bolt;
 
 const MAX_INDICATOR_MS = 60_000;
@@ -35,6 +47,8 @@ const TOOL_STATUS_MAP = {
   search_papers: 'searching arxiv...',
   download_paper: 'pulling the paper...',
   read_paper: 'reading the paper...',
+  get_stock_quote: 'checking the market...',
+  create_calendar_event: 'scheduling that...',
 };
 
 function toolStatusText(toolName) {
@@ -174,7 +188,7 @@ async function fetchChannelContext(client, event, config, nameCache) {
   );
 
   const otherThreads = [];
-  for (const rootMsg of threadRoots.slice(0, 3)) {
+  for (const rootMsg of threadRoots.slice(0, 5)) {
     try {
       const result = await client.conversations.replies({ channel, ts: rootMsg.ts });
       const replies = (result.messages ?? []).slice(1, 4);
@@ -196,7 +210,7 @@ async function fetchChannelContext(client, event, config, nameCache) {
     }
   }
 
-  return { channelMessages: buildThreadContext(channelMsgs, maxChars), otherThreads };
+  return { channelMessages: buildChannelContext(channelMsgs, maxChars), otherThreads };
 }
 
 export function buildToolsMessage(toolsByServer) {
@@ -277,6 +291,12 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       thread_ts: threadTs,
       text,
     });
+
+    if (!isWildcard) {
+      const replyReactions = ['poop', 'brain', 'smiling_imp', 'fire', 'sunglasses', 'exploding_head', 'face_with_raised_eyebrow', 'nerd_face'];
+      const reaction = replyReactions[Math.floor(Math.random() * replyReactions.length)];
+      client.reactions.add({ channel: event.channel, timestamp: event.ts, name: reaction }).catch(() => {});
+    }
   }
 
   app.event('app_mention', async ({ event, client }) => {
