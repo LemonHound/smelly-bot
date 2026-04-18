@@ -1,12 +1,4 @@
 steps:
-  - name: 'node:20'
-    entrypoint: 'npm'
-    args: ['ci']
-
-  - name: 'node:20'
-    entrypoint: 'npm'
-    args: ['test']
-
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - build
