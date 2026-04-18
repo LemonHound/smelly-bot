@@ -9,6 +9,8 @@ import { makeLlmReply } from './llm/index.js';
 import { createMcpClient } from './mcp/client.js';
 import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
+import { CREATE_CALENDAR_EVENT_SCHEMA, makeCreateCalendarEventHandler } from './calendar/tools.js';
+import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler } from './stock/tools.js';
 import { makeSessionStore } from './session.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
@@ -22,12 +24,22 @@ const prompts = loadPrompts();
 const anthropicClient = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 const sessionStore = makeSessionStore({ firestore, config });
 
+const slackClientRef = { client: null };
+
 let docCache = null;
 
 const localTools = [
   {
     ...REFRESH_REPO_DOC_SCHEMA,
     handler: async (args) => makeRefreshRepoDocHandler({ docCache })(args),
+  },
+  {
+    ...CREATE_CALENDAR_EVENT_SCHEMA,
+    handler: makeCreateCalendarEventHandler({ slackClientRef, config }),
+  },
+  {
+    ...GET_STOCK_QUOTE_SCHEMA,
+    handler: makeGetStockQuoteHandler(),
   },
 ];
 
@@ -40,5 +52,7 @@ const callTool = wrapCallToolWithCache(rawCallTool, docCache, config);
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
 const app = await buildSlackApp({ config, reply, toolsByServer, sessionStore });
+slackClientRef.client = app.client;
+
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');
