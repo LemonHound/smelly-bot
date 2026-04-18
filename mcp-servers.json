@@ -10,6 +10,26 @@
     ]
   },
   {
+    "name": "brave-search",
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "allowedTools": [
+      "brave_web_search"
+    ]
+  },
+  {
+    "name": "arxiv",
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "arxiv-mcp-server"],
+    "allowedTools": [
+      "search_papers",
+      "download_paper",
+      "read_paper"
+    ]
+  },
+  {
     "name": "github",
     "type": "http",
     "url": "https://api.githubcopilot.com/mcp/",

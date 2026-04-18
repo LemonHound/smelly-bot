@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeSessionStore } from '../src/session.js';
+import { makeSessionStore, makeWildcardStore } from '../src/session.js';
 
 function makeFirestore({ snap = null, throwOn = null } = {}) {
   const docs = new Map();
@@ -97,5 +97,56 @@ describe('makeSessionStore', () => {
     const store = makeSessionStore({ firestore, config: makeConfig() });
     const result = await store.isActive('thread-ts-1');
     assert.equal(result, true);
+  });
+});
+
+const makeWildcardConfig = (overrides = {}) => ({
+  WILDCARD_COOLDOWN_MS: 7 * 24 * 60 * 60 * 1000,
+  WILDCARD_PROBABILITY: 0.03,
+  ...overrides,
+});
+
+describe('makeWildcardStore', () => {
+  it('returns false and seeds the record on first call for a channel', async () => {
+    const firestore = makeFirestore();
+    const store = makeWildcardStore({ firestore, config: makeWildcardConfig() });
+    const result = await store.shouldFire('C1');
+    assert.equal(result, false, 'should return false on first call (no prior record)');
+    assert.equal(firestore.docs.size, 1, 'should write initial record');
+  });
+
+  it('returns false within the cooldown window', async () => {
+    const lastFiredAt = { toMillis: () => Date.now() - 1_000 };
+    const firestore = makeFirestore({ snap: { lastFiredAt } });
+    const store = makeWildcardStore({ firestore, config: makeWildcardConfig() });
+    const result = await store.shouldFire('C1');
+    assert.equal(result, false, 'should not fire within cooldown');
+  });
+
+  it('returns false after cooldown when probability check fails', async () => {
+    const lastFiredAt = { toMillis: () => Date.now() - (8 * 24 * 60 * 60 * 1000) };
+    const firestore = makeFirestore({ snap: { lastFiredAt } });
+    const store = makeWildcardStore({ firestore, config: makeWildcardConfig({ WILDCARD_PROBABILITY: 0 }) });
+    const result = await store.shouldFire('C1');
+    assert.equal(result, false, 'should not fire when probability is 0');
+  });
+
+  it('returns true and updates timestamp after cooldown when probability passes', async () => {
+    const lastFiredAt = { toMillis: () => Date.now() - (8 * 24 * 60 * 60 * 1000) };
+    const firestore = makeFirestore({ snap: { lastFiredAt } });
+    const store = makeWildcardStore({ firestore, config: makeWildcardConfig({ WILDCARD_PROBABILITY: 1 }) });
+    const result = await store.shouldFire('C1');
+    assert.equal(result, true, 'should fire when past cooldown and probability is 1');
+    assert.equal(firestore.docs.size, 1, 'should update the record');
+    const [, data] = [...firestore.docs.entries()][0];
+    assert.ok(data.lastFiredAt instanceof Date, 'lastFiredAt should be updated to a Date');
+    assert.ok(data.lastFiredAt.getTime() > Date.now() - 1000, 'lastFiredAt should be recent');
+  });
+
+  it('returns false and does not throw when Firestore fails', async () => {
+    const firestore = makeFirestore({ throwOn: 'get' });
+    const store = makeWildcardStore({ firestore, config: makeWildcardConfig() });
+    const result = await store.shouldFire('C1');
+    assert.equal(result, false, 'should fail closed on Firestore error');
   });
 });
