@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon --ignore 'firebase-debug.log' --ignore 'firestore-debug.log' --ignore '.firebase/' --ignore '*.log' src/index.js",
-    "test": "node --test test/llm.test.js test/slack.test.js test/mcpClient.test.js test/docCache.test.js test/githubTools.test.js"
+    "test": "node --test test/llm.test.js test/slack.test.js test/session.test.js test/engage.test.js test/mcpClient.test.js test/docCache.test.js test/githubTools.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",

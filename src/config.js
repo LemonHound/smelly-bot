@@ -32,5 +32,8 @@ export function loadConfig() {
     SESSION_TTL_MS: Number(process.env.SESSION_TTL_MS) || 30 * 60 * 1000,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_REPO: process.env.GITHUB_REPO,
+    ENGAGEMENT_CHECK_ENABLED: process.env.ENGAGEMENT_CHECK_ENABLED !== 'false',
+    WILDCARD_COOLDOWN_MS: Number(process.env.WILDCARD_COOLDOWN_MS) || 7 * 24 * 60 * 60 * 1000,
+    WILDCARD_PROBABILITY: Number(process.env.WILDCARD_PROBABILITY) || 0.03,
   });
 }
