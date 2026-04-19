@@ -44,11 +44,11 @@ const localTools = [
   },
   {
     ...GET_STOCK_QUOTE_SCHEMA,
-    handler: makeGetStockQuoteHandler(),
+    handler: makeGetStockQuoteHandler({ config }),
   },
   {
     ...GET_MARKET_OVERVIEW_SCHEMA,
-    handler: makeGetMarketOverviewHandler(),
+    handler: makeGetMarketOverviewHandler({ config }),
   },
 ];
 
