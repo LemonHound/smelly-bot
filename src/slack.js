@@ -231,7 +231,7 @@ export function buildToolsMessage(toolsByServer) {
   return lines.join('\n');
 }
 
-export async function buildSlackApp({ config, reply, toolsByServer, sessionStore = null, wildcardStore = null, checkEngagement = null, _createApp = null }) {
+export async function buildSlackApp({ config, reply, toolsByServer, sessionStore = null, wildcardStore = null, checkEngagement = null, analyticsStore = null, _createApp = null }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
   const app = _createApp
@@ -272,6 +272,8 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
 
     const channelName = channelInfo?.channel?.name ?? event.channel;
 
+    let pendingAnalytics = null;
+
     const text = await reply({
       channelName,
       mentionUserId: event.user,
@@ -283,15 +285,26 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       otherThreads,
       isWildcard,
       onTool: (toolName) => indicator.setStatus(toolStatusText(toolName)),
+      onAnalytics: (data) => { pendingAnalytics = data; },
     });
 
     await indicator.stop();
 
-    await client.chat.postMessage({
+    const postResult = await client.chat.postMessage({
       channel: event.channel,
       thread_ts: threadTs,
       text,
     });
+
+    if (analyticsStore && pendingAnalytics) {
+      analyticsStore.record({
+        ...pendingAnalytics,
+        channel: event.channel,
+        thread_ts: threadTs,
+        is_wildcard: isWildcard,
+        message_ts: postResult?.ts ?? null,
+      });
+    }
 
     if (!isWildcard) {
       const replyReactions = ['poop', 'brain', 'smiling_imp', 'fire', 'sunglasses', 'exploding_head', 'face_with_raised_eyebrow', 'nerd_face'];
@@ -347,6 +360,13 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       }
     }
   });
+
+  if (analyticsStore) {
+    app.event('reaction_added', async ({ event }) => {
+      if (event.item?.type !== 'message') return;
+      await analyticsStore.addFeedback({ message_ts: event.item.ts, reaction: event.reaction });
+    });
+  }
 
   app.error(async (error) => {
     logger.error({ err: error.message }, 'Slack app error');

@@ -13,6 +13,7 @@ import { CREATE_CALENDAR_EVENT_SCHEMA, makeCreateCalendarEventHandler } from './
 import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler, GET_MARKET_OVERVIEW_SCHEMA, makeGetMarketOverviewHandler } from './stock/tools.js';
 import { makeSessionStore, makeWildcardStore } from './session.js';
 import { makeEngagementCheck } from './engage.js';
+import { makeAnalyticsStore } from './analytics.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
 
@@ -26,6 +27,7 @@ const anthropicClient = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 const sessionStore = makeSessionStore({ firestore, config });
 const wildcardStore = makeWildcardStore({ firestore, config });
 const checkEngagement = makeEngagementCheck({ anthropicClient, config });
+const analyticsStore = makeAnalyticsStore({ firestore });
 
 const slackClientRef = { client: null };
 
@@ -58,7 +60,7 @@ const callTool = wrapCallToolWithCache(rawCallTool, docCache, config);
 
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
-const app = await buildSlackApp({ config, reply, toolsByServer, sessionStore, wildcardStore, checkEngagement });
+const app = await buildSlackApp({ config, reply, toolsByServer, sessionStore, wildcardStore, checkEngagement, analyticsStore });
 slackClientRef.client = app.client;
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');

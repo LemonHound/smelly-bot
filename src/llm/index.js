@@ -110,7 +110,7 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
       return composeFallback();
     }
 
-    const { onTool, isWildcard, ...ctxFields } = ctx;
+    const { onTool, onAnalytics, isWildcard, ...ctxFields } = ctx;
     const userMessage = buildUserMessage({ ...ctxFields, githubRepo: config.GITHUB_REPO, isWildcard });
     const systemBlock = buildSystemBlock(prompts);
 
@@ -124,6 +124,23 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
     };
 
     logger.debug({ payload }, 'LLM request');
+
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    const toolsCalled = [];
+    const startMs = Date.now();
+
+    const emitAnalytics = (text, stopReason) => {
+      onAnalytics?.({
+        model: config.CLAUDE_MODEL,
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens,
+        tools_called: toolsCalled,
+        latency_ms: Date.now() - startMs,
+        stop_reason: stopReason,
+        response_length: text?.length ?? 0,
+      });
+    };
 
     try {
       while (true) {
@@ -142,9 +159,14 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
 
         logger.debug({ response }, 'LLM response');
 
+        totalInputTokens += response.usage?.input_tokens ?? 0;
+        totalOutputTokens += response.usage?.output_tokens ?? 0;
+
         if (response.stop_reason === 'end_turn') {
           const textBlock = response.content.find(b => b.type === 'text');
-          return textBlock ? textBlock.text : composeFallback();
+          const text = textBlock ? textBlock.text : composeFallback();
+          emitAnalytics(text, 'end_turn');
+          return text;
         }
 
         if (response.stop_reason === 'tool_use') {
@@ -156,10 +178,13 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
           const toolResultBlocks = await Promise.all(
             toolUseBlocks
               .map(async (block) => {
+                const toolStart = Date.now();
                 try {
                   const content = await callTool(block.name, block.input);
+                  toolsCalled.push({ name: block.name, latency_ms: Date.now() - toolStart, success: true });
                   return { type: 'tool_result', tool_use_id: block.id, content };
                 } catch (err) {
+                  toolsCalled.push({ name: block.name, latency_ms: Date.now() - toolStart, success: false, error: err.message });
                   logger.warn({ err: err.message, tool: block.name }, 'Tool call failed');
                   return {
                     type: 'tool_result',
@@ -176,7 +201,9 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
         }
 
         const textBlock = response.content.find(b => b.type === 'text');
-        return textBlock ? textBlock.text : composeFallback();
+        const text = textBlock ? textBlock.text : composeFallback();
+        emitAnalytics(text, response.stop_reason);
+        return text;
       }
     } catch (err) {
       logger.error({ err: err.message }, 'LLM call failed');
