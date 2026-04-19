@@ -1,11 +1,31 @@
 import yahooFinance from 'yahoo-finance2';
 import { logger } from '../logger.js';
 
+const COMMODITY_TICKERS = {
+  silver: 'SI=F',
+  gold: 'GC=F',
+  'crude oil': 'CL=F',
+  oil: 'CL=F',
+  'natural gas': 'NG=F',
+  copper: 'HG=F',
+  platinum: 'PL=F',
+  palladium: 'PA=F',
+  bitcoin: 'BTC-USD',
+  btc: 'BTC-USD',
+  ethereum: 'ETH-USD',
+  eth: 'ETH-USD',
+  'us dollar': 'DX-Y.NYB',
+  dollar: 'DX-Y.NYB',
+  dxy: 'DX-Y.NYB',
+};
+
 async function resolveTicker(query) {
-  if (/^[A-Z]{1,5}$/.test(query.trim().toUpperCase())) return query.trim().toUpperCase();
+  const normalized = query.trim().toLowerCase();
+  if (COMMODITY_TICKERS[normalized]) return COMMODITY_TICKERS[normalized];
+  if (/^[A-Z0-9=\-\.]{1,10}$/i.test(query.trim())) return query.trim().toUpperCase();
   try {
-    const result = await yahooFinance.search(query, { quotesCount: 1, newsCount: 0 }, { validateResult: false });
-    const hit = result.quotes?.find(q => q.quoteType === 'EQUITY' || q.quoteType === 'ETF');
+    const result = await yahooFinance.search(query, { quotesCount: 3, newsCount: 0 }, { validateResult: false });
+    const hit = result.quotes?.find(q => ['EQUITY', 'ETF', 'FUTURE', 'CRYPTOCURRENCY', 'INDEX'].includes(q.quoteType));
     return hit?.symbol ?? query.toUpperCase();
   } catch {
     return query.toUpperCase();
