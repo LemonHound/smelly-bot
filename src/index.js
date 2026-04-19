@@ -11,8 +11,8 @@ import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
 import { CREATE_CALENDAR_EVENT_SCHEMA, makeCreateCalendarEventHandler } from './calendar/tools.js';
 import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler } from './stock/tools.js';
-import { makeSessionStore, makeWildcardStore } from './session.js';
-import { makeEngagementCheck } from './engage.js';
+import { makeWildcardStore } from './session.js';
+import { makeReactionClassifier } from './reaction.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
 
@@ -23,9 +23,8 @@ const firestore = getFirestore(config);
 const rateLimit = makeRateLimit({ firestore, config });
 const prompts = loadPrompts();
 const anthropicClient = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
-const sessionStore = makeSessionStore({ firestore, config });
 const wildcardStore = makeWildcardStore({ firestore, config });
-const checkEngagement = makeEngagementCheck({ anthropicClient, config });
+const classifyReaction = makeReactionClassifier({ anthropicClient });
 
 const slackClientRef = { client: null };
 
@@ -54,7 +53,7 @@ const callTool = wrapCallToolWithCache(rawCallTool, docCache, config);
 
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
-const app = await buildSlackApp({ config, reply, toolsByServer, sessionStore, wildcardStore, checkEngagement });
+const app = await buildSlackApp({ config, reply, toolsByServer, wildcardStore, classifyReaction });
 slackClientRef.client = app.client;
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');

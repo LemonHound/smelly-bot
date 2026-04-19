@@ -40,7 +40,13 @@ function todayString() {
   return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, channelMessages, otherThreads, githubRepo, isWildcard }) {
+function formatTs(ts) {
+  if (!ts) return null;
+  const d = new Date(parseFloat(ts) * 1000);
+  return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+}
+
+function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, channelMessages, otherThreads, githubRepo, isWildcard, isInThread = false }) {
   const mentionLabel = mentionDisplayName
     ? `${mentionDisplayName} (<@${mentionUserId}>)`
     : `<@${mentionUserId}>`;
@@ -73,17 +79,24 @@ function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botU
   }
 
   if (threadMessages && threadMessages.length > 0) {
-    parts.push('Current thread context:');
+    parts.push('Current thread context (chronological, oldest first):');
     for (const m of threadMessages) {
       const label = m.displayName ? `${m.displayName} (<@${m.userId}>)` : (m.user ? `<@${m.user}>` : `<@${m.userId}>`);
-      parts.push(`${label}: ${m.text}`);
+      const time = formatTs(m.ts);
+      parts.push(time ? `[${time}] ${label}: ${m.text}` : `${label}: ${m.text}`);
     }
     parts.push('---');
   }
+
   if (isWildcard) {
     parts.push('[You have jumped into this conversation uninvited. Make it brief and make it count — a quick quip, roast, or sharp observation. Do not announce or explain that you jumped in uninvited.]');
   }
-  parts.push(mentionText);
+
+  if (!isInThread) {
+    parts.push('[Routing: To post your response as a main channel message instead of starting a thread, begin it with "[CHANNEL]" on its own line. Only do this when the response genuinely reads better as a standalone channel post. Default is to reply in-thread.]');
+  }
+
+  parts.push(`[Current request]:\n${mentionText}`);
   return parts.join('\n');
 }
 
@@ -110,8 +123,8 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
       return composeFallback();
     }
 
-    const { onTool, isWildcard, ...ctxFields } = ctx;
-    const userMessage = buildUserMessage({ ...ctxFields, githubRepo: config.GITHUB_REPO, isWildcard });
+    const { onTool, isWildcard, isInThread, ...ctxFields } = ctx;
+    const userMessage = buildUserMessage({ ...ctxFields, githubRepo: config.GITHUB_REPO, isWildcard, isInThread });
     const systemBlock = buildSystemBlock(prompts);
 
     const messages = [{ role: 'user', content: userMessage }];
