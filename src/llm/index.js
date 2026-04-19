@@ -1,7 +1,7 @@
 import { composeFallback } from '../fallbacks.js';
 import { logger } from '../logger.js';
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 45_000;
 const RATE_LIMIT_TIMEOUT_MS = 3_000;
 
 export function buildThreadContext(messages, maxChars) {
@@ -40,7 +40,7 @@ function todayString() {
   return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, channelMessages, otherThreads, githubRepo }) {
+function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botUserId, mentionText, threadMessages, channelMessages, otherThreads, githubRepo, isWildcard }) {
   const mentionLabel = mentionDisplayName
     ? `${mentionDisplayName} (<@${mentionUserId}>)`
     : `<@${mentionUserId}>`;
@@ -80,6 +80,9 @@ function buildUserMessage({ channelName, mentionUserId, mentionDisplayName, botU
     }
     parts.push('---');
   }
+  if (isWildcard) {
+    parts.push('[You have jumped into this conversation uninvited. Make it brief and make it count — a quick quip, roast, or sharp observation. Do not announce or explain that you jumped in uninvited.]');
+  }
   parts.push(mentionText);
   return parts.join('\n');
 }
@@ -107,7 +110,8 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
       return composeFallback();
     }
 
-    const userMessage = buildUserMessage({ ...ctx, githubRepo: config.GITHUB_REPO });
+    const { onTool, isWildcard, ...ctxFields } = ctx;
+    const userMessage = buildUserMessage({ ...ctxFields, githubRepo: config.GITHUB_REPO, isWildcard });
     const systemBlock = buildSystemBlock(prompts);
 
     const messages = [{ role: 'user', content: userMessage }];
@@ -146,9 +150,11 @@ export function makeLlmReply({ config, prompts, rateLimit, anthropicClient, tool
         if (response.stop_reason === 'tool_use') {
           payload.messages = [...payload.messages, { role: 'assistant', content: response.content }];
 
+          const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
+          if (onTool && toolUseBlocks.length > 0) onTool(toolUseBlocks[0].name);
+
           const toolResultBlocks = await Promise.all(
-            response.content
-              .filter(b => b.type === 'tool_use')
+            toolUseBlocks
               .map(async (block) => {
                 try {
                   const content = await callTool(block.name, block.input);

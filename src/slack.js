@@ -2,9 +2,23 @@ import bolt from '@slack/bolt';
 import { buildThreadContext } from './llm/index.js';
 import { logger } from './logger.js';
 
+function buildChannelContext(messages, maxChars) {
+  let total = 0;
+  const included = [];
+  for (const m of messages) {
+    const chars = `${m.displayName ?? m.userId}: ${m.text}`.length;
+    if (total + chars > maxChars) break;
+    total += chars;
+    included.push(m);
+  }
+  return included.reverse();
+}
+
 const { App, LogLevel } = bolt;
 
 const MAX_INDICATOR_MS = 60_000;
+const INITIAL_REACTION_DELAY_MS = 3_000;
+const PERSONA_REACTIONS = ['toilet', 'thinking_face', 'brain', 'face_with_monocle', 'nerd_face', 'flushed'];
 
 const STILL_WORKING_MESSAGES = [
   "still thinking... :brain:",
@@ -15,31 +29,77 @@ const STILL_WORKING_MESSAGES = [
   "my one brain cell is working overtime... :sweat_smile:",
 ];
 
+const TOOL_STATUS_MAP = {
+  search: 'wiki-ing that...',
+  readArticle: 'reading the article...',
+  brave_web_search: 'googling it...',
+  get_file_contents: 'checking the repo files...',
+  list_issues: 'checking the issues...',
+  list_pull_requests: 'checking the PRs...',
+  search_issues: 'searching issues...',
+  search_pull_requests: 'searching PRs...',
+  add_issue_comment: 'commenting on the issue...',
+  add_reply_to_pull_request_comment: 'leaving a comment...',
+  issue_read: 'reading the issue...',
+  issue_write: 'updating the issue...',
+  pull_request_read: 'reading the PR...',
+  refresh_repo_doc: 'refreshing the docs...',
+  search_papers: 'searching arxiv...',
+  download_paper: 'pulling the paper...',
+  read_paper: 'reading the paper...',
+  get_stock_quote: 'checking the market...',
+  create_calendar_event: 'scheduling that...',
+};
+
+function toolStatusText(toolName) {
+  return TOOL_STATUS_MAP[toolName] ?? 'on it...';
+}
+
 export function makeProgressIndicator({ client, channel, ts, threadTs }) {
   let done = false;
   let phase = 0;
   let statusTs = null;
   let updateIdx = 0;
+  const activeReactions = new Set();
+  const chosenReaction = PERSONA_REACTIONS[Math.floor(Math.random() * PERSONA_REACTIONS.length)];
 
-  client.reactions.add({ channel, timestamp: ts, name: 'eyes' }).catch(() => {});
+  const addReaction = async (name) => {
+    await client.reactions.add({ channel, timestamp: ts, name }).catch(() => {});
+    activeReactions.add(name);
+  };
+
+  const removeReaction = async (name) => {
+    activeReactions.delete(name);
+    await client.reactions.remove({ channel, timestamp: ts, name }).catch(() => {});
+  };
+
+  const postOrUpdateStatus = async (text) => {
+    if (statusTs) {
+      await client.chat.update({ channel, ts: statusTs, text }).catch(() => {});
+      return;
+    }
+    await Promise.all([...activeReactions].map(r => removeReaction(r)));
+    const result = await client.chat.postMessage({ channel, thread_ts: threadTs, text }).catch(() => null);
+    statusTs = result?.ts ?? null;
+  };
+
+  const reactionTimer = setTimeout(async () => {
+    if (done) return;
+    await addReaction(chosenReaction);
+  }, INITIAL_REACTION_DELAY_MS);
 
   const tick = async () => {
     if (done) return;
     phase++;
 
     if (phase === 1) {
-      await Promise.all([
-        client.reactions.remove({ channel, timestamp: ts, name: 'eyes' }).catch(() => {}),
-        client.reactions.add({ channel, timestamp: ts, name: 'hourglass' }).catch(() => {}),
-      ]);
+      if (activeReactions.has(chosenReaction)) {
+        await removeReaction(chosenReaction);
+        await addReaction('hourglass');
+      }
     } else if (phase === 2) {
-      await client.reactions.remove({ channel, timestamp: ts, name: 'hourglass' }).catch(() => {});
-      const result = await client.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        text: 'hang on, this is taking a minute... :hourglass_flowing_sand:',
-      }).catch(() => null);
-      statusTs = result?.ts ?? null;
+      if (activeReactions.has('hourglass')) await removeReaction('hourglass');
+      if (!statusTs) await postOrUpdateStatus('hang on, this is taking a minute... :hourglass_flowing_sand:');
     } else if (statusTs) {
       const text = STILL_WORKING_MESSAGES[updateIdx % STILL_WORKING_MESSAGES.length];
       updateIdx++;
@@ -49,20 +109,26 @@ export function makeProgressIndicator({ client, channel, ts, threadTs }) {
 
   const timer = setInterval(tick, 5_000);
 
+  const setStatus = async (text) => {
+    if (done) return;
+    await postOrUpdateStatus(text);
+  };
+
   const stop = async () => {
     if (done) return;
     done = true;
+    clearTimeout(reactionTimer);
     clearInterval(timer);
     clearTimeout(maxTimer);
     await Promise.all([
-      client.reactions.remove({ channel, timestamp: ts, name: 'eyes' }).catch(() => {}),
-      client.reactions.remove({ channel, timestamp: ts, name: 'hourglass' }).catch(() => {}),
+      ...[...activeReactions].map(r => client.reactions.remove({ channel, timestamp: ts, name: r }).catch(() => {})),
+      statusTs ? client.chat.delete({ channel, ts: statusTs }).catch(() => {}) : Promise.resolve(),
     ]);
   };
 
   const maxTimer = setTimeout(stop, MAX_INDICATOR_MS);
 
-  return { stop };
+  return { stop, setStatus };
 }
 
 function resolveDisplayName(client, userId, cache) {
@@ -122,7 +188,7 @@ async function fetchChannelContext(client, event, config, nameCache) {
   );
 
   const otherThreads = [];
-  for (const rootMsg of threadRoots.slice(0, 3)) {
+  for (const rootMsg of threadRoots.slice(0, 5)) {
     try {
       const result = await client.conversations.replies({ channel, ts: rootMsg.ts });
       const replies = (result.messages ?? []).slice(1, 4);
@@ -144,7 +210,7 @@ async function fetchChannelContext(client, event, config, nameCache) {
     }
   }
 
-  return { channelMessages: buildThreadContext(channelMsgs, maxChars), otherThreads };
+  return { channelMessages: buildChannelContext(channelMsgs, maxChars), otherThreads };
 }
 
 export function buildToolsMessage(toolsByServer) {
@@ -164,7 +230,7 @@ export function buildToolsMessage(toolsByServer) {
   return lines.join('\n');
 }
 
-export async function buildSlackApp({ config, reply, toolsByServer, sessionStore = null, _createApp = null }) {
+export async function buildSlackApp({ config, reply, toolsByServer, sessionStore = null, wildcardStore = null, checkEngagement = null, _createApp = null }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
   const app = _createApp
@@ -185,7 +251,7 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
   const { user_id: botUserId } = await app.client.auth.test();
   logger.info({ botUserId }, 'Bot identity confirmed');
 
-  async function handleInvocation({ event, client, mentionText }) {
+  async function handleInvocation({ event, client, mentionText, isWildcard = false }) {
     const threadTs = event.thread_ts ?? event.ts;
 
     const indicator = makeProgressIndicator({
@@ -214,6 +280,8 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       threadMessages,
       channelMessages,
       otherThreads,
+      isWildcard,
+      onTool: (toolName) => indicator.setStatus(toolStatusText(toolName)),
     });
 
     await indicator.stop();
@@ -223,6 +291,12 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       thread_ts: threadTs,
       text,
     });
+
+    if (!isWildcard) {
+      const replyReactions = ['poop', 'brain', 'smiling_imp', 'fire', 'sunglasses', 'exploding_head', 'face_with_raised_eyebrow', 'nerd_face'];
+      const reaction = replyReactions[Math.floor(Math.random() * replyReactions.length)];
+      client.reactions.add({ channel: event.channel, timestamp: event.ts, name: reaction }).catch(() => {});
+    }
   }
 
   app.event('app_mention', async ({ event, client }) => {
@@ -246,18 +320,31 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
   });
 
   app.event('message', async ({ event, client }) => {
-    if (!sessionStore) return;
     if (event.bot_id) return;
     if (!event.text) return;
     if (event.text.includes(`<@${botUserId}>`)) return;
 
     const threadTs = event.thread_ts;
-    if (!threadTs) return;
 
-    const active = await sessionStore.isActive(threadTs);
-    if (!active) return;
+    if (threadTs && sessionStore) {
+      const active = await sessionStore.isActive(threadTs);
+      if (active) {
+        if (checkEngagement) {
+          const threadMessages = await fetchThreadMessages(client, event.channel, threadTs, config.THREAD_CONTEXT_MAX_CHARS, new Map());
+          const engage = await checkEngagement({ threadMessages: threadMessages ?? [], newMessage: event.text });
+          if (!engage) return;
+        }
+        await handleInvocation({ event, client, mentionText: event.text });
+        return;
+      }
+    }
 
-    await handleInvocation({ event, client, mentionText: event.text });
+    if (wildcardStore) {
+      const fire = await wildcardStore.shouldFire(event.channel);
+      if (fire) {
+        await handleInvocation({ event, client, mentionText: event.text, isWildcard: true });
+      }
+    }
   });
 
   app.error(async (error) => {

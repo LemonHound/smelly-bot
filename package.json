@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon --ignore 'firebase-debug.log' --ignore 'firestore-debug.log' --ignore '.firebase/' --ignore '*.log' src/index.js",
-    "test": "node --test test/llm.test.js test/slack.test.js test/mcpClient.test.js test/docCache.test.js test/githubTools.test.js"
+    "test": "node --test test/llm.test.js test/slack.test.js test/session.test.js test/engage.test.js test/mcpClient.test.js test/docCache.test.js test/githubTools.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
@@ -19,7 +19,9 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/bolt": "^3.22.0",
     "dotenv": "^16.4.5",
-    "pino": "^10.3.1"
+    "googleapis": "^144.0.0",
+    "pino": "^10.3.1",
+    "yahoo-finance2": "^2.13.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14",

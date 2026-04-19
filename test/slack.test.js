@@ -1,6 +1,8 @@
-import { describe, it, mock } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeProgressIndicator, buildSlackApp, buildToolsMessage } from '../src/slack.js';
+
+const PERSONA_REACTIONS = ['toilet', 'thinking_face', 'brain', 'face_with_monocle', 'nerd_face', 'flushed'];
 
 function makeClient() {
   const calls = [];
@@ -16,6 +18,7 @@ function makeClient() {
         return { ts: 'status-ts-001' };
       },
       update: async (args) => { calls.push({ fn: 'chat.update', ...args }); },
+      delete: async (args) => { calls.push({ fn: 'chat.delete', ...args }); },
     },
   };
 }
@@ -23,127 +26,178 @@ function makeClient() {
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 describe('makeProgressIndicator', () => {
-  it('adds eyes reaction immediately on creation', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-    assert.ok(client.calls.some(c => c.fn === 'reactions.add' && c.name === 'eyes'));
-    t.mock.timers.reset();
-  });
-
-  it('switches to hourglass after first tick (5s)', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-
-    t.mock.timers.tick(5_000);
-    await flush();
-
-    assert.ok(client.calls.some(c => c.fn === 'reactions.remove' && c.name === 'eyes'));
-    assert.ok(client.calls.some(c => c.fn === 'reactions.add' && c.name === 'hourglass'));
-    t.mock.timers.reset();
-  });
-
-  it('posts status message and removes hourglass after second tick (10s)', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-
-    t.mock.timers.tick(5_000);
-    await flush();
-    t.mock.timers.tick(5_000);
-    await flush();
-
-    assert.ok(client.calls.some(c => c.fn === 'reactions.remove' && c.name === 'hourglass'));
-    assert.ok(client.calls.some(c => c.fn === 'chat.postMessage'));
-    t.mock.timers.reset();
-  });
-
-  it('edits status message on subsequent ticks', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-
-    t.mock.timers.tick(5_000);
-    await flush();
-    t.mock.timers.tick(5_000);
-    await flush();
-    t.mock.timers.tick(5_000);
-    await flush();
-
-    assert.ok(client.calls.some(c => c.fn === 'chat.update' && c.ts === 'status-ts-001'));
-    t.mock.timers.reset();
-  });
-
-  it('edits with different messages on consecutive ticks', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-
-    t.mock.timers.tick(5_000); await flush();
-    t.mock.timers.tick(5_000); await flush();
-    t.mock.timers.tick(5_000); await flush();
-    t.mock.timers.tick(5_000); await flush();
-
-    const updates = client.calls.filter(c => c.fn === 'chat.update');
-    assert.ok(updates.length >= 2, 'should have at least two updates');
-    assert.notEqual(updates[0].text, updates[1].text, 'consecutive updates should differ');
-    t.mock.timers.reset();
-  });
-
-  it('stop() removes active emoji reactions', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-
-    await indicator.stop();
-
-    const removals = client.calls.filter(c => c.fn === 'reactions.remove');
-    assert.ok(removals.some(c => c.name === 'eyes') || removals.some(c => c.name === 'hourglass'));
-    t.mock.timers.reset();
-  });
-
-  it('stop() prevents further ticks from firing', async (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
-    const client = makeClient();
-    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
-    await flush();
-
-    await indicator.stop();
-    const callCountAtStop = client.calls.length;
-
-    t.mock.timers.tick(5_000);
-    await flush();
-
-    assert.equal(client.calls.length, callCountAtStop, 'no new calls after stop');
-    t.mock.timers.reset();
-  });
-
-  it('self-terminates after max lifetime even if stop() is never called', async (t) => {
+  it('does not add any reaction immediately on creation', async (t) => {
     t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
     const client = makeClient();
     makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
     await flush();
+    assert.ok(!client.calls.some(c => c.fn === 'reactions.add'), 'no reaction before 3s delay');
+    t.mock.timers.reset();
+  });
 
-    t.mock.timers.tick(60_000);
+  it('adds a random persona emoji after 3s delay', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000);
     await flush();
+    const added = client.calls.filter(c => c.fn === 'reactions.add');
+    assert.equal(added.length, 1, 'exactly one reaction added after delay');
+    assert.ok(PERSONA_REACTIONS.includes(added[0].name), `"${added[0].name}" should be a persona emoji`);
+    t.mock.timers.reset();
+  });
 
+  it('switches to hourglass after first interval tick (5s total)', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    t.mock.timers.tick(2_000); await flush();
+    assert.ok(client.calls.some(c => c.fn === 'reactions.remove'), 'persona reaction removed');
+    assert.ok(client.calls.some(c => c.fn === 'reactions.add' && c.name === 'hourglass'), 'hourglass added');
+    t.mock.timers.reset();
+  });
+
+  it('posts status message and removes hourglass after second tick (10s total)', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    t.mock.timers.tick(2_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    assert.ok(client.calls.some(c => c.fn === 'reactions.remove' && c.name === 'hourglass'), 'hourglass removed');
+    assert.ok(client.calls.some(c => c.fn === 'chat.postMessage'), 'status message posted');
+    t.mock.timers.reset();
+  });
+
+  it('edits status message on subsequent ticks', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    t.mock.timers.tick(2_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    assert.ok(client.calls.some(c => c.fn === 'chat.update' && c.ts === 'status-ts-001'));
+    t.mock.timers.reset();
+  });
+
+  it('uses different still-working messages on consecutive ticks', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    t.mock.timers.tick(2_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    const updates = client.calls.filter(c => c.fn === 'chat.update');
+    assert.ok(updates.length >= 2, 'at least two update calls');
+    assert.notEqual(updates[0].text, updates[1].text, 'consecutive updates use different messages');
+    t.mock.timers.reset();
+  });
+
+  it('stop() removes all active reactions', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    await indicator.stop();
     const removals = client.calls.filter(c => c.fn === 'reactions.remove');
-    assert.ok(removals.length > 0, 'reactions should be cleaned up by max lifetime');
+    assert.ok(removals.length > 0, 'at least one reaction removed on stop');
+    t.mock.timers.reset();
+  });
 
-    t.mock.timers.tick(5_000);
-    await flush();
+  it('stop() deletes status message when one was posted', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    t.mock.timers.tick(2_000); await flush();
+    t.mock.timers.tick(5_000); await flush();
+    await indicator.stop();
+    assert.ok(client.calls.some(c => c.fn === 'chat.delete' && c.ts === 'status-ts-001'), 'status message deleted on stop');
+    t.mock.timers.reset();
+  });
+
+  it('stop() skips chat.delete when no status message was posted', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    await indicator.stop();
+    assert.ok(!client.calls.some(c => c.fn === 'chat.delete'), 'no chat.delete when no status message');
+    t.mock.timers.reset();
+  });
+
+  it('stop() prevents further ticks from firing', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    await indicator.stop();
+    const callsAtStop = client.calls.length;
+    t.mock.timers.tick(5_000); await flush();
+    assert.equal(client.calls.length, callsAtStop, 'no new calls after stop');
+    t.mock.timers.reset();
+  });
+
+  it('self-terminates after max lifetime and stops accepting ticks', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(60_001); await flush(); await flush();
     const callsAfterMax = client.calls.length;
+    t.mock.timers.tick(5_000); await flush();
+    assert.equal(client.calls.length, callsAfterMax, 'no further calls after max lifetime');
+    t.mock.timers.reset();
+  });
 
-    t.mock.timers.tick(5_000);
+  it('setStatus() posts a message when none exists yet', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    await indicator.setStatus('checking something...');
     await flush();
-    assert.equal(client.calls.length, callsAfterMax, 'no further calls after self-termination');
+    assert.ok(client.calls.some(c => c.fn === 'chat.postMessage' && c.text === 'checking something...'));
+    t.mock.timers.reset();
+  });
+
+  it('setStatus() updates the existing message on second call', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    await indicator.setStatus('first status');
+    await flush();
+    await indicator.setStatus('second status');
+    await flush();
+    assert.ok(client.calls.some(c => c.fn === 'chat.update' && c.ts === 'status-ts-001' && c.text === 'second status'));
+    t.mock.timers.reset();
+  });
+
+  it('setStatus() removes active reaction before posting', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    t.mock.timers.tick(3_000); await flush();
+    await indicator.setStatus('tool is running...');
+    await flush();
+    const removeIdx = client.calls.findIndex(c => c.fn === 'reactions.remove');
+    const postIdx = client.calls.findIndex(c => c.fn === 'chat.postMessage');
+    assert.ok(removeIdx !== -1, 'reaction removed');
+    assert.ok(postIdx !== -1, 'status posted');
+    assert.ok(removeIdx < postIdx, 'reaction removed before status message posted');
+    t.mock.timers.reset();
+  });
+
+  it('setStatus() is a no-op after stop()', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    const client = makeClient();
+    const indicator = makeProgressIndicator({ client, channel: 'C1', ts: 'ts1', threadTs: 'thread1' });
+    await indicator.stop();
+    const callsAtStop = client.calls.length;
+    await indicator.setStatus('should not appear');
+    await flush();
+    assert.equal(client.calls.length, callsAtStop, 'no calls after stop');
     t.mock.timers.reset();
   });
 });
@@ -165,6 +219,7 @@ function makeSlackClient({ usersInfoName = 'Alice', usersInfoThrows = false } = 
         return { ts: 'msg-ts' };
       },
       update: async () => {},
+      delete: async () => {},
     },
     conversations: {
       info: async () => ({ channel: { name: 'general' } }),
@@ -301,10 +356,9 @@ describe('display name resolution', () => {
       ],
     });
     const mockApp = makeMockBoltApp(slackClient);
-    let capturedCtx = null;
     await buildSlackApp({
       config: baseConfig,
-      reply: async (ctx) => { capturedCtx = ctx; return 'ok'; },
+      reply: async () => 'ok',
       toolsByServer: new Map([['local', []]]),
       _createApp: () => mockApp,
     });
@@ -313,7 +367,7 @@ describe('display name resolution', () => {
       client: slackClient,
     });
     const u123Calls = slackClient.usersInfoCalls.filter(id => id === 'U123');
-    assert.ok(u123Calls.length <= 2, `U123 should be looked up at most twice (thread + mention), got ${u123Calls.length}`);
+    assert.ok(u123Calls.length <= 2, `U123 should be looked up at most twice, got ${u123Calls.length}`);
   });
 
   it('falls back to raw user ID when users.info throws', async () => {
@@ -368,7 +422,7 @@ describe('session store integration', () => {
       event: { text: '<@UBOT> hello', ts: 'toplevel-ts', channel: 'C1', user: 'U1' },
       client: slackClient,
     });
-    assert.ok(sessionStore.touched.includes('toplevel-ts'), 'should touch the session with ts when no thread_ts');
+    assert.ok(sessionStore.touched.includes('toplevel-ts'), 'should touch session with ts when no thread_ts');
   });
 });
 
@@ -392,7 +446,7 @@ describe('message event auto-reply', () => {
     assert.equal(replyCalled, true, 'should call reply when session is active');
   });
 
-  it('does not invoke reply when session is inactive', async () => {
+  it('does not invoke reply when session is inactive and no wildcard', async () => {
     let replyCalled = false;
     const slackClient = makeSlackClient();
     const mockApp = makeMockBoltApp(slackClient);
@@ -415,12 +469,11 @@ describe('message event auto-reply', () => {
     let replyCalled = false;
     const slackClient = makeSlackClient();
     const mockApp = makeMockBoltApp(slackClient);
-    const sessionStore = makeSessionStore({ active: true });
     await buildSlackApp({
       config: baseConfig,
       reply: async () => { replyCalled = true; return 'x'; },
       toolsByServer: new Map([['local', []]]),
-      sessionStore,
+      sessionStore: makeSessionStore({ active: true }),
       _createApp: () => mockApp,
     });
     await mockApp._events['message']({
@@ -434,12 +487,11 @@ describe('message event auto-reply', () => {
     let replyCalled = false;
     const slackClient = makeSlackClient();
     const mockApp = makeMockBoltApp(slackClient);
-    const sessionStore = makeSessionStore({ active: true });
     await buildSlackApp({
       config: baseConfig,
       reply: async () => { replyCalled = true; return 'x'; },
       toolsByServer: new Map([['local', []]]),
-      sessionStore,
+      sessionStore: makeSessionStore({ active: true }),
       _createApp: () => mockApp,
     });
     await mockApp._events['message']({
@@ -449,26 +501,7 @@ describe('message event auto-reply', () => {
     assert.equal(replyCalled, false, 'should not call reply for messages containing bot mention');
   });
 
-  it('ignores top-level messages without thread_ts', async () => {
-    let replyCalled = false;
-    const slackClient = makeSlackClient();
-    const mockApp = makeMockBoltApp(slackClient);
-    const sessionStore = makeSessionStore({ active: true });
-    await buildSlackApp({
-      config: baseConfig,
-      reply: async () => { replyCalled = true; return 'x'; },
-      toolsByServer: new Map([['local', []]]),
-      sessionStore,
-      _createApp: () => mockApp,
-    });
-    await mockApp._events['message']({
-      event: { text: 'top level message', ts: 'toplevel-ts', channel: 'C1', user: 'U1' },
-      client: slackClient,
-    });
-    assert.equal(replyCalled, false, 'should not call reply for top-level messages');
-  });
-
-  it('does nothing when sessionStore is not provided', async () => {
+  it('does not invoke reply when no sessionStore and no wildcardStore', async () => {
     let replyCalled = false;
     const slackClient = makeSlackClient();
     const mockApp = makeMockBoltApp(slackClient);
@@ -482,6 +515,103 @@ describe('message event auto-reply', () => {
       event: { text: 'hey', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
       client: slackClient,
     });
-    assert.equal(replyCalled, false, 'should not call reply when no sessionStore');
+    assert.equal(replyCalled, false, 'should not call reply when no sessionStore or wildcardStore');
+  });
+});
+
+describe('message event engagement check', () => {
+  it('does not invoke reply when checkEngagement returns false', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore: makeSessionStore({ active: true }),
+      checkEngagement: async () => false,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'side conversation', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should skip reply when engagement check fails');
+  });
+
+  it('invokes reply when checkEngagement returns true', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'ok'; },
+      toolsByServer: new Map([['local', []]]),
+      sessionStore: makeSessionStore({ active: true }),
+      checkEngagement: async () => true,
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'reply to bot', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, true, 'should invoke reply when engagement check passes');
+  });
+});
+
+describe('wildcard behavior', () => {
+  it('invokes reply with isWildcard=true when wildcardStore fires', async () => {
+    let capturedCtx = null;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async (ctx) => { capturedCtx = ctx; return 'wildcard reply'; },
+      toolsByServer: new Map([['local', []]]),
+      wildcardStore: { shouldFire: async () => true },
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'random chatter', ts: 'msg-ts', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(capturedCtx?.isWildcard, true, 'isWildcard should be true for wildcard invocations');
+  });
+
+  it('does not invoke reply when wildcardStore.shouldFire returns false', async () => {
+    let replyCalled = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => { replyCalled = true; return 'x'; },
+      toolsByServer: new Map([['local', []]]),
+      wildcardStore: { shouldFire: async () => false },
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'random chatter', ts: 'msg-ts', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(replyCalled, false, 'should not invoke reply when shouldFire is false');
+  });
+
+  it('wildcard does not fire when session is active (session takes priority)', async () => {
+    let wildcardFired = false;
+    const slackClient = makeSlackClient();
+    const mockApp = makeMockBoltApp(slackClient);
+    await buildSlackApp({
+      config: baseConfig,
+      reply: async () => 'ok',
+      toolsByServer: new Map([['local', []]]),
+      sessionStore: makeSessionStore({ active: true }),
+      wildcardStore: { shouldFire: async () => { wildcardFired = true; return true; } },
+      _createApp: () => mockApp,
+    });
+    await mockApp._events['message']({
+      event: { text: 'thread reply', ts: 'msg-ts', thread_ts: 'thread1', channel: 'C1', user: 'U1' },
+      client: slackClient,
+    });
+    assert.equal(wildcardFired, false, 'wildcard store should not be consulted when active session handles the message');
   });
 });

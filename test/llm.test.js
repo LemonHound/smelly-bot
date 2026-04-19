@@ -410,6 +410,92 @@ describe('makeLlmReply', () => {
     const result = await reply(baseCtx);
     assert.equal(result, 'plain response');
   });
+
+  it('calls onTool with the tool name before executing the tool', async () => {
+    const onToolCalls = [];
+    let callCount = 0;
+
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      tools: [{ name: 'findPage', description: 'find', input_schema: { type: 'object', properties: {} } }],
+      callTool: async () => [{ type: 'text', text: 'result' }],
+      anthropicClient: {
+        messages: {
+          create: async () => {
+            callCount++;
+            if (callCount === 1) {
+              return {
+                stop_reason: 'tool_use',
+                content: [{ type: 'tool_use', id: 'tu_1', name: 'findPage', input: { query: 'x' } }],
+              };
+            }
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+          },
+        },
+      },
+    });
+
+    await reply({ ...baseCtx, onTool: (name) => onToolCalls.push(name) });
+    assert.deepEqual(onToolCalls, ['findPage'], 'onTool should be called with the tool name');
+  });
+
+  it('does not call onTool when no tools are used', async () => {
+    const onToolCalls = [];
+
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: makeClient('direct answer'),
+    });
+
+    await reply({ ...baseCtx, onTool: (name) => onToolCalls.push(name) });
+    assert.deepEqual(onToolCalls, [], 'onTool should not be called for end_turn responses');
+  });
+});
+
+describe('buildUserMessage with isWildcard', () => {
+  it('includes uninvited note in user message when isWildcard is true', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({ ...baseCtx, isWildcard: true });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(userContent.includes('uninvited'), 'should include uninvited note for wildcard');
+  });
+
+  it('does not include uninvited note when isWildcard is false or absent', async () => {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    await reply({ ...baseCtx, isWildcard: false });
+    const userContent = capturedPayload.messages[0].content;
+    assert.ok(!userContent.includes('uninvited'), 'should not include uninvited note for normal invocation');
+  });
 });
 
 describe('buildThreadContext', () => {
