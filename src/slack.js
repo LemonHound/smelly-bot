@@ -48,6 +48,7 @@ const TOOL_STATUS_MAP = {
   download_paper: 'pulling the paper...',
   read_paper: 'reading the paper...',
   get_stock_quote: 'checking the market...',
+  get_market_overview: 'checking the market...',
   create_calendar_event: 'scheduling that...',
 };
 
