@@ -35,5 +35,6 @@ export function loadConfig() {
     WILDCARD_ENABLED: process.env.WILDCARD_ENABLED !== 'false',
     WILDCARD_COOLDOWN_MS: Number(process.env.WILDCARD_COOLDOWN_MS) || 7 * 24 * 60 * 60 * 1000,
     WILDCARD_PROBABILITY: Number(process.env.WILDCARD_PROBABILITY) || 0.03,
+    FINNHUB_API_KEY: process.env.FINNHUB_API_KEY || null,
   });
 }

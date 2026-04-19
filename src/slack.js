@@ -48,6 +48,7 @@ const TOOL_STATUS_MAP = {
   download_paper: 'pulling the paper...',
   read_paper: 'reading the paper...',
   get_stock_quote: 'checking the market...',
+  get_market_overview: 'checking the market...',
   create_calendar_event: 'scheduling that...',
 };
 
@@ -230,7 +231,7 @@ export function buildToolsMessage(toolsByServer) {
   return lines.join('\n');
 }
 
-export async function buildSlackApp({ config, reply, toolsByServer, wildcardStore = null, classifyReaction = null, _createApp = null }) {
+export async function buildSlackApp({ config, reply, toolsByServer, wildcardStore = null, classifyReaction = null, analyticsStore = null, _createApp = null }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
   const app = _createApp
@@ -272,6 +273,8 @@ export async function buildSlackApp({ config, reply, toolsByServer, wildcardStor
 
     const channelName = channelInfo?.channel?.name ?? event.channel;
 
+    let pendingAnalytics = null;
+
     let text = await reply({
       channelName,
       mentionUserId: event.user,
@@ -284,6 +287,7 @@ export async function buildSlackApp({ config, reply, toolsByServer, wildcardStor
       isWildcard,
       isInThread,
       onTool: (toolName) => indicator.setStatus(toolStatusText(toolName)),
+      onAnalytics: (data) => { pendingAnalytics = data; },
     });
 
     let postToChannel = false;
@@ -294,11 +298,21 @@ export async function buildSlackApp({ config, reply, toolsByServer, wildcardStor
 
     await indicator.stop();
 
-    await client.chat.postMessage({
+    const postResult = await client.chat.postMessage({
       channel: event.channel,
       ...(postToChannel ? {} : { thread_ts: threadTs }),
       text,
     });
+
+    if (analyticsStore && pendingAnalytics) {
+      analyticsStore.record({
+        ...pendingAnalytics,
+        channel: event.channel,
+        thread_ts: threadTs,
+        is_wildcard: isWildcard,
+        message_ts: postResult?.ts ?? null,
+      });
+    }
 
     if (!isWildcard) {
       const replyReactions = ['poop', 'brain', 'smiling_imp', 'fire', 'sunglasses', 'exploding_head', 'face_with_raised_eyebrow', 'nerd_face'];
@@ -371,6 +385,13 @@ export async function buildSlackApp({ config, reply, toolsByServer, wildcardStor
         client,
         mentionText: `[${reactorName} reacted with :${event.reaction}: — they may have a question or concern about your message above.]`,
       });
+    });
+  }
+
+  if (analyticsStore) {
+    app.event('reaction_added', async ({ event }) => {
+      if (event.item?.type !== 'message') return;
+      await analyticsStore.addFeedback({ message_ts: event.item.ts, reaction: event.reaction });
     });
   }
 

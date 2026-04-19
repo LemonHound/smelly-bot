@@ -10,9 +10,10 @@ import { createMcpClient } from './mcp/client.js';
 import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
 import { CREATE_CALENDAR_EVENT_SCHEMA, makeCreateCalendarEventHandler } from './calendar/tools.js';
-import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler } from './stock/tools.js';
+import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler, GET_MARKET_OVERVIEW_SCHEMA, makeGetMarketOverviewHandler } from './stock/tools.js';
 import { makeWildcardStore } from './session.js';
 import { makeReactionClassifier } from './reaction.js';
+import { makeAnalyticsStore } from './analytics.js';
 import { buildSlackApp } from './slack.js';
 import { logger } from './logger.js';
 
@@ -25,6 +26,7 @@ const prompts = loadPrompts();
 const anthropicClient = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 const wildcardStore = makeWildcardStore({ firestore, config });
 const classifyReaction = makeReactionClassifier({ anthropicClient });
+const analyticsStore = makeAnalyticsStore({ firestore });
 
 const slackClientRef = { client: null };
 
@@ -41,7 +43,11 @@ const localTools = [
   },
   {
     ...GET_STOCK_QUOTE_SCHEMA,
-    handler: makeGetStockQuoteHandler(),
+    handler: makeGetStockQuoteHandler({ config }),
+  },
+  {
+    ...GET_MARKET_OVERVIEW_SCHEMA,
+    handler: makeGetMarketOverviewHandler({ config }),
   },
 ];
 
@@ -53,7 +59,7 @@ const callTool = wrapCallToolWithCache(rawCallTool, docCache, config);
 
 const reply = makeLlmReply({ config, prompts, rateLimit, anthropicClient, tools, callTool });
 
-const app = await buildSlackApp({ config, reply, toolsByServer, wildcardStore, classifyReaction });
+const app = await buildSlackApp({ config, reply, toolsByServer, wildcardStore, classifyReaction, analyticsStore });
 slackClientRef.client = app.client;
 await app.start(config.PORT);
 logger.info({ port: config.PORT, toolCount: tools.length }, 'smelly-bot running');
