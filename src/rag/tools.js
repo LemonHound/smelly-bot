@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { GoogleAuth } from 'google-auth-library';
 import { SearchServiceClient } from '@google-cloud/discoveryengine';
+import { Storage } from '@google-cloud/storage';
 import { createRequire } from 'module';
 const pdfParse = createRequire(import.meta.url)('pdf-parse');
 import { logger } from '../logger.js';
@@ -16,6 +17,27 @@ function makeDriveAuth(config) {
     credentials: JSON.parse(config.GOOGLE_DRIVE_SERVICE_ACCOUNT_KEY),
     scopes: ['https://www.googleapis.com/auth/drive.readonly'],
   });
+}
+
+function makeStorageClient(config) {
+  const credentials = JSON.parse(config.GOOGLE_DRIVE_SERVICE_ACCOUNT_KEY);
+  return new Storage({ credentials, projectId: config.GOOGLE_CLOUD_PROJECT });
+}
+
+async function fetchFromGcs(config, file_id) {
+  const bucket = makeStorageClient(config).bucket(config.GCS_RAG_BUCKET);
+
+  let title = file_id;
+  try {
+    const [buf] = await bucket.file(`${file_id}.pdf.metadata.json`).download();
+    title = JSON.parse(buf.toString()).title || file_id;
+  } catch {
+  }
+
+  const [buffer] = await bucket.file(`${file_id}.pdf`).download();
+  const parsed = await pdfParse(buffer);
+  logger.info({ fileId: file_id, title, chars: parsed.text.length }, 'RAG full-document fetch complete');
+  return [{ type: 'text', text: `# ${title}\n\n${parsed.text}` }];
 }
 
 function makeSearchClient(config) {
@@ -129,8 +151,13 @@ export function makeGetDocumentContentHandler({ config }) {
       name = meta.data.name;
       mimeType = meta.data.mimeType;
     } catch (err) {
-      logger.warn({ fileId: file_id, err: err.message }, 'RAG full-document fetch: metadata failed');
-      return [{ type: 'text', text: `Could not retrieve document with id "${file_id}".` }];
+      logger.info({ fileId: file_id }, 'RAG drive metadata not found, trying GCS fallback');
+      try {
+        return await fetchFromGcs(config, file_id);
+      } catch (gcsErr) {
+        logger.warn({ fileId: file_id, err: gcsErr.message }, 'RAG full-document fetch: both Drive and GCS failed');
+        return [{ type: 'text', text: `Could not retrieve document with id "${file_id}".` }];
+      }
     }
 
     try {
