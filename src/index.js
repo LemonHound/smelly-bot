@@ -11,6 +11,7 @@ import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
 import { CREATE_CALENDAR_EVENT_SCHEMA, makeCreateCalendarEventHandler } from './calendar/tools.js';
 import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler, GET_MARKET_OVERVIEW_SCHEMA, makeGetMarketOverviewHandler } from './stock/tools.js';
+import { SEARCH_DOCUMENTS_SCHEMA, makeSearchDocumentsHandler, GET_DOCUMENT_CONTENT_SCHEMA, makeGetDocumentContentHandler } from './rag/tools.js';
 import { makeWildcardStore } from './session.js';
 import { makeReactionClassifier } from './reaction.js';
 import { makeAnalyticsStore } from './analytics.js';
@@ -48,6 +49,14 @@ const localTools = [
   {
     ...GET_MARKET_OVERVIEW_SCHEMA,
     handler: makeGetMarketOverviewHandler({ config }),
+  },
+  {
+    ...SEARCH_DOCUMENTS_SCHEMA,
+    handler: makeSearchDocumentsHandler({ config }),
+  },
+  {
+    ...GET_DOCUMENT_CONTENT_SCHEMA,
+    handler: makeGetDocumentContentHandler({ config }),
   },
 ];
 
