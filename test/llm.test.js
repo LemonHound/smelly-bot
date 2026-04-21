@@ -646,3 +646,63 @@ describe('buildUserMessage with displayName', () => {
     assert.ok(userContent.includes('<@U444>'), 'should include user ID in thread context');
   });
 });
+
+describe('routing hint and current request label', () => {
+  function makeCapturingReply() {
+    let capturedPayload;
+    const reply = makeLlmReply({
+      config: makeConfig(),
+      prompts: makePrompts(),
+      rateLimit: okRateLimit,
+      anthropicClient: {
+        messages: {
+          create: async (payload) => {
+            capturedPayload = payload;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+          },
+        },
+      },
+    });
+    return { reply, getContent: () => capturedPayload.messages[0].content };
+  }
+
+  it('includes [Current request]: label before the mention text', async () => {
+    const { reply, getContent } = makeCapturingReply();
+    await reply({ ...baseCtx, mentionText: 'say hello' });
+    assert.ok(getContent().includes('[Current request]:\nsay hello'), 'should include [Current request] label');
+  });
+
+  it('includes routing hint when isInThread is false', async () => {
+    const { reply, getContent } = makeCapturingReply();
+    await reply({ ...baseCtx, isInThread: false });
+    assert.ok(getContent().includes('[Routing:'), 'should include routing hint when not in thread');
+  });
+
+  it('omits routing hint when isInThread is true', async () => {
+    const { reply, getContent } = makeCapturingReply();
+    await reply({ ...baseCtx, isInThread: true });
+    assert.ok(!getContent().includes('[Routing:'), 'should not include routing hint when in thread');
+  });
+
+  it('includes timestamp prefix for thread messages that have a ts field', async () => {
+    const { reply, getContent } = makeCapturingReply();
+    const ts = '1700000000.000';
+    const d = new Date(1700000000 * 1000);
+    const h = d.getUTCHours().toString().padStart(2, '0');
+    const m = d.getUTCMinutes().toString().padStart(2, '0');
+    await reply({
+      ...baseCtx,
+      threadMessages: [{ userId: 'U1', displayName: 'Alice', text: 'hello', ts }],
+    });
+    assert.ok(getContent().includes(`[${h}:${m}] Alice`), 'should include UTC time prefix for thread message');
+  });
+
+  it('omits timestamp prefix for thread messages without ts', async () => {
+    const { reply, getContent } = makeCapturingReply();
+    await reply({
+      ...baseCtx,
+      threadMessages: [{ userId: 'U1', displayName: 'Alice', text: 'hello' }],
+    });
+    assert.ok(getContent().includes('Alice (<@U1>): hello'), 'should format without timestamp when ts absent');
+  });
+});
