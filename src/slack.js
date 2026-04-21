@@ -48,6 +48,7 @@ const TOOL_STATUS_MAP = {
   download_paper: 'pulling the paper...',
   read_paper: 'reading the paper...',
   get_stock_quote: 'checking the market...',
+  get_market_overview: 'checking the market...',
   create_calendar_event: 'scheduling that...',
 };
 
@@ -153,7 +154,7 @@ async function fetchThreadMessages(client, channel, threadTs, maxChars, nameCach
     replies.map(async (m) => {
       const userId = m.user ?? 'unknown';
       const displayName = await resolveDisplayName(client, userId, nameCache);
-      return { userId, displayName, text: m.text ?? '' };
+      return { userId, displayName, text: m.text ?? '', ts: m.ts };
     })
   );
 
@@ -230,7 +231,7 @@ export function buildToolsMessage(toolsByServer) {
   return lines.join('\n');
 }
 
-export async function buildSlackApp({ config, reply, toolsByServer, sessionStore = null, wildcardStore = null, checkEngagement = null, _createApp = null }) {
+export async function buildSlackApp({ config, reply, toolsByServer, wildcardStore = null, classifyReaction = null, analyticsStore = null, _createApp = null }) {
   const logLevel = config.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.INFO;
 
   const app = _createApp
@@ -248,11 +249,12 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
           logLevel,
         });
 
-  const { user_id: botUserId } = await app.client.auth.test();
+  const { user_id: botUserId, bot_id: botId } = await app.client.auth.test();
   logger.info({ botUserId }, 'Bot identity confirmed');
 
   async function handleInvocation({ event, client, mentionText, isWildcard = false }) {
     const threadTs = event.thread_ts ?? event.ts;
+    const isInThread = !!event.thread_ts;
 
     const indicator = makeProgressIndicator({
       client,
@@ -271,7 +273,9 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
 
     const channelName = channelInfo?.channel?.name ?? event.channel;
 
-    const text = await reply({
+    let pendingAnalytics = null;
+
+    let text = await reply({
       channelName,
       mentionUserId: event.user,
       mentionDisplayName,
@@ -281,16 +285,34 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       channelMessages,
       otherThreads,
       isWildcard,
+      isInThread,
       onTool: (toolName) => indicator.setStatus(toolStatusText(toolName)),
+      onAnalytics: (data) => { pendingAnalytics = data; },
     });
+
+    let postToChannel = false;
+    if (/^\[CHANNEL\]/i.test(text)) {
+      text = text.replace(/^\[CHANNEL\]\s*/i, '').trimStart();
+      if (!isInThread) postToChannel = true;
+    }
 
     await indicator.stop();
 
-    await client.chat.postMessage({
+    const postResult = await client.chat.postMessage({
       channel: event.channel,
-      thread_ts: threadTs,
+      ...(postToChannel ? {} : { thread_ts: threadTs }),
       text,
     });
+
+    if (analyticsStore && pendingAnalytics) {
+      analyticsStore.record({
+        ...pendingAnalytics,
+        channel: event.channel,
+        thread_ts: threadTs,
+        is_wildcard: isWildcard,
+        message_ts: postResult?.ts ?? null,
+      });
+    }
 
     if (!isWildcard) {
       const replyReactions = ['poop', 'brain', 'smiling_imp', 'fire', 'sunglasses', 'exploding_head', 'face_with_raised_eyebrow', 'nerd_face'];
@@ -312,10 +334,6 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
       return;
     }
 
-    if (sessionStore) {
-      await sessionStore.touch(threadTs);
-    }
-
     await handleInvocation({ event, client, mentionText });
   });
 
@@ -324,28 +342,58 @@ export async function buildSlackApp({ config, reply, toolsByServer, sessionStore
     if (!event.text) return;
     if (event.text.includes(`<@${botUserId}>`)) return;
 
-    const threadTs = event.thread_ts;
-
-    if (threadTs && sessionStore) {
-      const active = await sessionStore.isActive(threadTs);
-      if (active) {
-        if (checkEngagement) {
-          const threadMessages = await fetchThreadMessages(client, event.channel, threadTs, config.THREAD_CONTEXT_MAX_CHARS, new Map());
-          const engage = await checkEngagement({ threadMessages: threadMessages ?? [], newMessage: event.text });
-          if (!engage) return;
-        }
-        await handleInvocation({ event, client, mentionText: event.text });
-        return;
-      }
-    }
-
-    if (wildcardStore) {
+    if (config.WILDCARD_ENABLED && wildcardStore) {
       const fire = await wildcardStore.shouldFire(event.channel);
       if (fire) {
         await handleInvocation({ event, client, mentionText: event.text, isWildcard: true });
       }
     }
   });
+
+  if (classifyReaction) {
+    app.event('reaction_added', async ({ event, client }) => {
+      if (event.item.type !== 'message') return;
+
+      let message;
+      try {
+        const result = await client.conversations.history({
+          channel: event.item.channel,
+          latest: event.item.ts,
+          limit: 1,
+          inclusive: true,
+        });
+        message = result.messages?.[0];
+      } catch {
+        return;
+      }
+
+      if (!message || message.bot_id !== botId) return;
+
+      const sentiment = await classifyReaction(event.reaction);
+      if (sentiment !== 'question') return;
+
+      const nameCache = new Map();
+      const reactorName = await resolveDisplayName(client, event.user, nameCache);
+
+      await handleInvocation({
+        event: {
+          channel: event.item.channel,
+          ts: event.item.ts,
+          thread_ts: message.thread_ts ?? event.item.ts,
+          user: event.user,
+        },
+        client,
+        mentionText: `[${reactorName} reacted with :${event.reaction}: — they may have a question or concern about your message above.]`,
+      });
+    });
+  }
+
+  if (analyticsStore) {
+    app.event('reaction_added', async ({ event }) => {
+      if (event.item?.type !== 'message') return;
+      await analyticsStore.addFeedback({ message_ts: event.item.ts, reaction: event.reaction });
+    });
+  }
 
   app.error(async (error) => {
     logger.error({ err: error.message }, 'Slack app error');
