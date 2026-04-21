@@ -11,6 +11,7 @@ import { makeDocCache, wrapCallToolWithCache } from './github/docCache.js';
 import { REFRESH_REPO_DOC_SCHEMA, makeRefreshRepoDocHandler } from './github/tools.js';
 import { CREATE_CALENDAR_EVENT_SCHEMA, makeCreateCalendarEventHandler } from './calendar/tools.js';
 import { GET_STOCK_QUOTE_SCHEMA, makeGetStockQuoteHandler } from './stock/tools.js';
+import { SEARCH_DOCUMENTS_SCHEMA, makeSearchDocumentsHandler, GET_DOCUMENT_CONTENT_SCHEMA, makeGetDocumentContentHandler } from './rag/tools.js';
 import { makeSessionStore, makeWildcardStore } from './session.js';
 import { makeEngagementCheck } from './engage.js';
 import { buildSlackApp } from './slack.js';
@@ -43,6 +44,14 @@ const localTools = [
   {
     ...GET_STOCK_QUOTE_SCHEMA,
     handler: makeGetStockQuoteHandler(),
+  },
+  {
+    ...SEARCH_DOCUMENTS_SCHEMA,
+    handler: makeSearchDocumentsHandler({ config }),
+  },
+  {
+    ...GET_DOCUMENT_CONTENT_SCHEMA,
+    handler: makeGetDocumentContentHandler({ config }),
   },
 ];
 

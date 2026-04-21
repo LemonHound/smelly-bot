@@ -15,11 +15,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
+    "@google-cloud/discoveryengine": "^2.6.0",
     "@google-cloud/firestore": "^7.11.0",
+    "@google-cloud/storage": "^7.19.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/bolt": "^3.22.0",
     "dotenv": "^16.4.5",
     "googleapis": "^144.0.0",
+    "pdf-parse": "^1.1.4",
     "pino": "^10.3.1",
     "yahoo-finance2": "^2.13.3"
   },

@@ -36,5 +36,11 @@ export function loadConfig() {
     ENGAGEMENT_CHECK_ENABLED: process.env.ENGAGEMENT_CHECK_ENABLED !== 'false',
     WILDCARD_COOLDOWN_MS: Number(process.env.WILDCARD_COOLDOWN_MS) || 7 * 24 * 60 * 60 * 1000,
     WILDCARD_PROBABILITY: Number(process.env.WILDCARD_PROBABILITY) || 0.03,
+    GOOGLE_DRIVE_SERVICE_ACCOUNT_KEY: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_KEY || null,
+    GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID || null,
+    GCS_RAG_BUCKET: process.env.GCS_RAG_BUCKET || null,
+    VERTEX_AI_DATASTORE_ID: process.env.VERTEX_AI_DATASTORE_ID || null,
+    VERTEX_AI_ENGINE_ID: process.env.VERTEX_AI_ENGINE_ID || null,
+    VERTEX_AI_LOCATION: process.env.VERTEX_AI_LOCATION || 'global',
   });
 }
